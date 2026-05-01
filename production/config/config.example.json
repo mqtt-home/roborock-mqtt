@@ -1,0 +1,20 @@
+{
+  "mqtt": {
+    "url": "tcp://localhost:1883",
+    "topic": "home/roborock",
+    "qos": 2,
+    "retain": true
+  },
+  "roborock": {
+    "username": "your-email@example.com",
+    "password": "your-password",
+    "client_id": "<client-id>",
+    "base_url": "https://euiot.roborock.com",
+    "polling_interval": 30
+  },
+  "web": {
+    "enabled": true,
+    "port": 8080
+  },
+  "loglevel": "info"
+}

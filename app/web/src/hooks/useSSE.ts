@@ -1,0 +1,80 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { SSEEvent, VacuumStatus } from '@/types/status';
+import { API_BASE } from '@/lib/api';
+
+interface SSEHookReturn {
+  statuses: Record<string, VacuumStatus>;
+  isConnected: boolean;
+  error: string | null;
+  reconnect: () => void;
+}
+
+export function useSSE(): SSEHookReturn {
+  const [statuses, setStatuses] = useState<Record<string, VacuumStatus>>({});
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cleanup = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+  }, []);
+
+  const connect = useCallback(() => {
+    cleanup();
+
+    try {
+      const eventSource = new EventSource(`${API_BASE}/events`);
+      eventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        setIsConnected(true);
+        setError(null);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as SSEEvent;
+          const { device, ...status } = data;
+          setStatuses(prev => ({ ...prev, [device]: status as VacuumStatus }));
+        } catch {
+          setError('Failed to parse server data');
+        }
+      };
+
+      eventSource.onerror = () => {
+        setIsConnected(false);
+        setError(eventSource.readyState === EventSource.CLOSED
+          ? 'Connection closed by server'
+          : 'Connection error');
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (eventSourceRef.current === eventSource) {
+            connect();
+          }
+        }, 3000);
+      };
+    } catch {
+      setError('Failed to connect to server');
+    }
+  }, [cleanup]);
+
+  useEffect(() => {
+    connect();
+    return cleanup;
+  }, [connect, cleanup]);
+
+  const reconnect = useCallback(() => {
+    setError(null);
+    connect();
+  }, [connect]);
+
+  return { statuses, isConnected, error, reconnect };
+}

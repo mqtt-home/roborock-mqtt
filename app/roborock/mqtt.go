@@ -1,0 +1,371 @@
+package roborock
+
+import (
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"math/rand"
+	"sync"
+	"time"
+
+	pahomqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/philipparndt/go-logger"
+)
+
+// CloudMQTT manages the MQTT connection to the Roborock cloud broker.
+type CloudMQTT struct {
+	client       pahomqtt.Client
+	loginData    *LoginData
+	device       *DeviceInfo
+	mqttUsername  string
+	tracker      *RequestTracker
+	onStatus     func(*DeviceStatus)
+	mu           sync.Mutex
+	connected    bool
+	stopCh       chan struct{}
+}
+
+// NewCloudMQTT creates a new Roborock cloud MQTT client.
+func NewCloudMQTT(loginData *LoginData, device *DeviceInfo) *CloudMQTT {
+	return &CloudMQTT{
+		loginData: loginData,
+		device:    device,
+		tracker:   NewRequestTracker(),
+		stopCh:    make(chan struct{}),
+	}
+}
+
+// SetStatusCallback sets the function called when device status updates arrive.
+func (cm *CloudMQTT) SetStatusCallback(cb func(*DeviceStatus)) {
+	cm.onStatus = cb
+}
+
+// Connect establishes the MQTT connection to the Roborock cloud broker.
+func (cm *CloudMQTT) Connect() error {
+	mqttServer := cm.loginData.RRIoT.Remote.MQTTServer
+	username, password := deriveMQTTCredentials(
+		cm.loginData.RRIoT.UserID,
+		cm.loginData.RRIoT.SessionID,
+		cm.loginData.RRIoT.MQTTKey,
+	)
+
+	cm.mqttUsername = username
+	clientID := fmt.Sprintf("rrb_%06d", rand.Intn(1000000))
+
+	logger.Debug("Cloud MQTT connection",
+		"server", mqttServer,
+		"username", username,
+		"clientID", clientID,
+		"device", cm.device.DID,
+	)
+
+	opts := pahomqtt.NewClientOptions().
+		AddBroker(mqttServer).
+		SetClientID(clientID).
+		SetUsername(username).
+		SetPassword(password).
+		SetKeepAlive(60 * time.Second).
+		SetCleanSession(true).
+		SetAutoReconnect(true).
+		SetMaxReconnectInterval(5 * time.Minute).
+		SetOnConnectHandler(cm.onConnect).
+		SetConnectionLostHandler(cm.onConnectionLost).
+		SetTLSConfig(&tls.Config{})
+
+	cm.client = pahomqtt.NewClient(opts)
+
+	token := cm.client.Connect()
+	if token.Wait() && token.Error() != nil {
+		return fmt.Errorf("connect to Roborock MQTT: %w", token.Error())
+	}
+
+	// Start periodic cleanup of stale requests
+	go cm.cleanupLoop()
+
+	return nil
+}
+
+func (cm *CloudMQTT) onConnect(client pahomqtt.Client) {
+	cm.mu.Lock()
+	cm.connected = true
+	cm.mu.Unlock()
+
+	topic := fmt.Sprintf("rr/m/o/%s/%s/%s",
+		cm.loginData.RRIoT.UserID,
+		cm.mqttUsername,
+		cm.device.DID,
+	)
+
+	logger.Info("Connected to Roborock cloud MQTT, subscribing", "topic", topic)
+
+	token := client.Subscribe(topic, 0, cm.handleMessage)
+	if token.Wait() && token.Error() != nil {
+		logger.Error("Failed to subscribe", "error", token.Error())
+	}
+}
+
+func (cm *CloudMQTT) onConnectionLost(_ pahomqtt.Client, err error) {
+	cm.mu.Lock()
+	cm.connected = false
+	cm.mu.Unlock()
+	logger.Warn("Roborock cloud MQTT connection lost", "error", err)
+}
+
+func (cm *CloudMQTT) handleMessage(_ pahomqtt.Client, mqttMsg pahomqtt.Message) {
+	logger.Debug("Received cloud MQTT message", "topic", mqttMsg.Topic(), "len", len(mqttMsg.Payload()))
+
+	header, payload, err := DecodeMessage(mqttMsg.Payload(), cm.device.DeviceKey)
+	if err != nil {
+		logger.Warn("Failed to decode message", "error", err)
+		return
+	}
+
+	if payload == nil {
+		return
+	}
+
+	logger.Debug("Decoded message", "protocol", header.Protocol, "seq", header.SequenceNumber, "payload", string(payload))
+
+	// Parse as MQTTMessage to extract DPS
+	var msg MQTTMessage
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		logger.Debug("Could not parse message", "error", err)
+		return
+	}
+
+	// Look for IPC response in DPS "102"
+	for key, value := range msg.DPS {
+		if key == "102" {
+			strVal, ok := value.(string)
+			if !ok {
+				continue
+			}
+			var ipcResp IPCResponse
+			if err := json.Unmarshal([]byte(strVal), &ipcResp); err != nil {
+				continue
+			}
+
+			// Try to correlate with pending request by IPC request ID
+			resultData, _ := json.Marshal(ipcResp.Result)
+			if cm.tracker.Complete(ipcResp.ID, resultData) {
+				logger.Debug("Matched response to request", "id", ipcResp.ID)
+				return
+			}
+
+			// Unsolicited — process as status
+			cm.processIPCResult(ipcResp.Result)
+		}
+	}
+}
+
+func (cm *CloudMQTT) processIPCResult(result any) {
+	if cm.onStatus == nil {
+		return
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+
+	status, err := ParseStatusFromProps(data)
+	if err != nil {
+		logger.Debug("Could not parse status from IPC result", "error", err)
+		return
+	}
+
+	// Enrich with human-readable names
+	status.StateName = StateName(status.State)
+	status.FanSpeedName = FanSpeedName(status.FanPower)
+	status.MopModeName = MopModeName(status.MopMode)
+	status.WaterBoxName = WaterBoxName(status.WaterBoxMode)
+
+	cm.onStatus(status)
+}
+
+// SendCommand sends an IPC command to the device and waits for a response.
+// The requestID is the IPC request ID from the JSON payload, used for response correlation.
+func (cm *CloudMQTT) SendCommand(payload []byte, requestID int) ([]byte, error) {
+	encoded, _, err := EncodeMessage(payload, cm.device.DeviceKey, protocolIPC)
+	if err != nil {
+		return nil, fmt.Errorf("encode message: %w", err)
+	}
+
+	req := cm.tracker.Add(requestID, "")
+
+	topic := fmt.Sprintf("rr/m/i/%s/%s/%s",
+		cm.loginData.RRIoT.UserID,
+		cm.mqttUsername,
+		cm.device.DID,
+	)
+
+	logger.Debug("Sending command", "topic", topic, "requestID", requestID, "len", len(encoded))
+
+	token := cm.client.Publish(topic, 0, false, encoded)
+	if token.Wait() && token.Error() != nil {
+		return nil, fmt.Errorf("publish command: %w", token.Error())
+	}
+
+	select {
+	case resp, ok := <-req.Response:
+		if !ok {
+			return nil, fmt.Errorf("request timed out")
+		}
+		return resp, nil
+	case <-time.After(15 * time.Second):
+		return nil, fmt.Errorf("command timed out after 15s")
+	}
+}
+
+// SendCommandNoWait sends a command without waiting for a response.
+func (cm *CloudMQTT) SendCommandNoWait(payload []byte) error {
+	encoded, _, err := EncodeMessage(payload, cm.device.DeviceKey, protocolIPC)
+	if err != nil {
+		return fmt.Errorf("encode message: %w", err)
+	}
+
+	topic := fmt.Sprintf("rr/m/i/%s/%s/%s",
+		cm.loginData.RRIoT.UserID,
+		cm.mqttUsername,
+		cm.device.DID,
+	)
+
+	token := cm.client.Publish(topic, 0, false, encoded)
+	if token.Wait() && token.Error() != nil {
+		return fmt.Errorf("publish command: %w", token.Error())
+	}
+
+	return nil
+}
+
+func (cm *CloudMQTT) cleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			cm.tracker.Cleanup(60 * time.Second)
+		case <-cm.stopCh:
+			return
+		}
+	}
+}
+
+// Disconnect cleanly disconnects from the cloud MQTT broker.
+func (cm *CloudMQTT) Disconnect() {
+	close(cm.stopCh)
+	if cm.client != nil && cm.client.IsConnected() {
+		cm.client.Disconnect(1000)
+	}
+}
+
+// IsConnected returns whether the cloud MQTT connection is active.
+func (cm *CloudMQTT) IsConnected() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.connected
+}
+
+// Start starts a vacuum cleaning.
+func (cm *CloudMQTT) Start() error {
+	payload, _, err := BuildStartPayload()
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
+// Pause pauses a vacuum cleaning.
+func (cm *CloudMQTT) Pause() error {
+	payload, _, err := BuildPausePayload()
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
+// Dock sends the vacuum back to the dock.
+func (cm *CloudMQTT) Dock() error {
+	payload, _, err := BuildDockPayload()
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
+// SegmentClean cleans specific room segments.
+func (cm *CloudMQTT) SegmentClean(segments []int) error {
+	payload, _, err := BuildSegmentCleanPayload(segments)
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
+// SetFanSpeed sets the suction power level.
+func (cm *CloudMQTT) SetFanSpeed(speed string) error {
+	payload, _, err := BuildSetFanSpeedPayload(speed)
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
+// SetMopMode sets the mop intensity mode.
+func (cm *CloudMQTT) SetMopMode(mode string) error {
+	payload, _, err := BuildSetMopModePayload(mode)
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
+// SetWaterBox sets the water box level.
+func (cm *CloudMQTT) SetWaterBox(level string) error {
+	payload, _, err := BuildSetWaterBoxPayload(level)
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
+// PollStatus requests the current device status.
+func (cm *CloudMQTT) PollStatus() (*DeviceStatus, error) {
+	payload, requestID, err := BuildGetStatusPayload()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := cm.SendCommand(payload, requestID)
+	if err != nil {
+		return nil, fmt.Errorf("poll status: %w", err)
+	}
+
+	status, err := ParseStatusFromProps(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	status.StateName = StateName(status.State)
+	status.FanSpeedName = FanSpeedName(status.FanPower)
+	status.MopModeName = MopModeName(status.MopMode)
+	status.WaterBoxName = WaterBoxName(status.WaterBoxMode)
+
+	return status, nil
+}
+
+// PollConsumables requests the current consumable status.
+func (cm *CloudMQTT) PollConsumables() (*ConsumableStatus, error) {
+	payload, requestID, err := BuildGetConsumablePayload()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := cm.SendCommand(payload, requestID)
+	if err != nil {
+		return nil, fmt.Errorf("poll consumables: %w", err)
+	}
+
+	return ParseConsumableStatus(resp)
+}

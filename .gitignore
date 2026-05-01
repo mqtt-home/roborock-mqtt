@@ -1,0 +1,6 @@
+.idea/
+config.json
+app/build/
+app/web/dist/
+app/web/node_modules/
+production/config/.session
