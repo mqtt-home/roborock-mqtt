@@ -86,6 +86,8 @@ func (ws *WebServer) setupRoutes() {
 			r.Post("/fan-speed", ws.deviceFanSpeed)
 			r.Post("/mop-mode", ws.deviceMopMode)
 			r.Get("/map", ws.deviceMap)
+			r.Get("/scenes", ws.deviceScenes)
+			r.Post("/scenes/{id}/execute", ws.executeScene)
 		})
 
 		r.Get("/events", ws.handleSSE)
@@ -273,6 +275,38 @@ func (ws *WebServer) deviceMopMode(w http.ResponseWriter, r *http.Request) {
 			logger.Error("Failed to set mop mode", "device", dev.Slug, "error", err)
 		}
 	}()
+	ws.jsonOK(w)
+}
+
+func (ws *WebServer) deviceScenes(w http.ResponseWriter, r *http.Request) {
+	dev := ws.getDeviceFromRequest(w, r)
+	if dev == nil {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if dev.Scenes == nil {
+		json.NewEncoder(w).Encode([]any{})
+	} else {
+		json.NewEncoder(w).Encode(dev.Scenes)
+	}
+}
+
+func (ws *WebServer) executeScene(w http.ResponseWriter, r *http.Request) {
+	if ws.deviceManager == nil {
+		http.Error(w, `{"error":"not connected"}`, http.StatusServiceUnavailable)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, `{"error":"invalid scene id"}`, http.StatusBadRequest)
+		return
+	}
+	if err := ws.deviceManager.ExecuteScene(id); err != nil {
+		logger.Error("Failed to execute scene", "id", id, "error", err)
+		http.Error(w, `{"error":"failed to execute scene"}`, http.StatusInternalServerError)
+		return
+	}
 	ws.jsonOK(w)
 }
 

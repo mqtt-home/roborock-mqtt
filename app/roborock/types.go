@@ -101,6 +101,20 @@ type ProductInfo struct {
 	Name  string `json:"name"`
 }
 
+// Scene represents a cleaning program/routine configured in the Roborock app.
+type Scene struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Type   string `json:"type,omitempty"`
+	Param  any    `json:"param,omitempty"`
+}
+
+// ScenesResponse represents the response from the scenes API.
+type ScenesResponse struct {
+	Success bool    `json:"success"`
+	Result  []Scene `json:"result"`
+}
+
 // DeviceStatus represents the current state of the vacuum.
 type DeviceStatus struct {
 	State          int    `json:"state"`

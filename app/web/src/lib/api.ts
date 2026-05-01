@@ -75,3 +75,21 @@ export async function setMopMode(slug: string, mode: string): Promise<void> {
   });
   if (!response.ok) throw new Error('Failed to set mop mode');
 }
+
+export interface SceneInfo {
+  id: number;
+  name: string;
+}
+
+export async function fetchScenes(slug: string): Promise<SceneInfo[]> {
+  const response = await fetch(`${API_BASE}/devices/${slug}/scenes`);
+  if (!response.ok) throw new Error('Failed to fetch scenes');
+  return response.json();
+}
+
+export async function executeScene(slug: string, sceneId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/devices/${slug}/scenes/${sceneId}/execute`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to execute scene');
+}

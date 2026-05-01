@@ -495,6 +495,71 @@ func (c *Client) GetDevices() []DeviceInfo {
 	return c.devices
 }
 
+// GetScenes fetches cleaning scenes/programs for a device using Hawk auth against the RRIOT API.
+func (c *Client) GetScenes(deviceID string) ([]Scene, error) {
+	path := "/user/scene/device/" + deviceID
+	apiURL := c.loginData.RRIoT.Remote.APIURL
+	fullURL := apiURL + path
+
+	req, err := http.NewRequest("GET", fullURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", c.hawkAuth(path))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	logger.Debug("GetScenes response", "device", deviceID, "status", resp.StatusCode, "body", string(body))
+
+	var scenesResp ScenesResponse
+	if err := json.Unmarshal(body, &scenesResp); err != nil {
+		return nil, fmt.Errorf("parse scenes: %w", err)
+	}
+
+	if !scenesResp.Success {
+		return nil, fmt.Errorf("getScenes failed")
+	}
+
+	return scenesResp.Result, nil
+}
+
+// ExecuteScene triggers a cleaning scene/program using Hawk auth against the RRIOT API.
+func (c *Client) ExecuteScene(sceneID int) error {
+	path := fmt.Sprintf("/user/scene/%d/execute", sceneID)
+	apiURL := c.loginData.RRIoT.Remote.APIURL
+	fullURL := apiURL + path
+
+	req, err := http.NewRequest("POST", fullURL, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", c.hawkAuth(path))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	logger.Debug("ExecuteScene response", "sceneID", sceneID, "status", resp.StatusCode, "body", string(body))
+
+	return nil
+}
+
 func init() {
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 }

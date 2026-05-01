@@ -33,7 +33,7 @@ var (
 	colorFloor   = color.RGBA{180, 190, 200, 255}   // light gray-blue
 	colorRobot   = color.RGBA{52, 168, 83, 255}     // green
 	colorCharger = color.RGBA{66, 133, 244, 255}    // blue
-	colorPath    = color.RGBA{255, 255, 255, 80}    // white semi-transparent
+	colorPath    = color.RGBA{255, 255, 255, 120}   // white semi-transparent
 )
 
 // RenderMapPNG renders parsed map data to a PNG image.
@@ -42,12 +42,14 @@ func RenderMapPNG(md *MapData) ([]byte, error) {
 		return nil, nil
 	}
 
-	img := image.NewRGBA(image.Rect(0, 0, md.Image.Width, md.Image.Height))
+	w, h := md.Image.Width, md.Image.Height
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
 
-	// Draw pixels
-	for y := 0; y < md.Image.Height; y++ {
-		for x := 0; x < md.Image.Width; x++ {
-			idx := y*md.Image.Width + x
+	// Draw pixels (flip Y axis: Roborock is bottom-up, PNG is top-down)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			srcY := h - 1 - y
+			idx := srcY*w + x
 			if idx >= len(md.Image.Pixels) {
 				continue
 			}
@@ -68,21 +70,20 @@ func RenderMapPNG(md *MapData) ([]byte, error) {
 		}
 	}
 
-	// Draw cleaning path
-	for _, p := range md.Path {
-		px, py := mapToPixel(p.X, p.Y, md.Image)
-		if px >= 0 && px < md.Image.Width && py >= 0 && py < md.Image.Height {
-			img.SetRGBA(px, py, colorPath)
-		}
+	// Draw cleaning path as connected lines
+	for i := 1; i < len(md.Path); i++ {
+		x0, y0 := mapToPixel(md.Path[i-1].X, md.Path[i-1].Y, md.Image)
+		x1, y1 := mapToPixel(md.Path[i].X, md.Path[i].Y, md.Image)
+		drawLine(img, x0, y0, x1, y1, colorPath)
 	}
 
-	// Draw charger position (5x5 square)
+	// Draw charger position
 	if md.Charger != nil {
 		cx, cy := mapToPixel(md.Charger.X, md.Charger.Y, md.Image)
 		drawMarker(img, cx, cy, colorCharger, 3)
 	}
 
-	// Draw robot position (5x5 square)
+	// Draw robot position
 	if md.Robot != nil {
 		rx, ry := mapToPixel(md.Robot.X, md.Robot.Y, md.Image)
 		drawMarker(img, rx, ry, colorRobot, 3)
@@ -96,10 +97,10 @@ func RenderMapPNG(md *MapData) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// mapToPixel converts map coordinates (mm) to pixel coordinates.
-func mapToPixel(x, y int, img *MapImage) (int, int) {
-	px := (x / 50) - img.Left
-	py := (y / 50) - img.Top
+// mapToPixel converts map coordinates (mm) to pixel coordinates (with Y flip).
+func mapToPixel(x, y int, mi *MapImage) (int, int) {
+	px := (x / 50) - mi.Left
+	py := mi.Height - 1 - ((y / 50) - mi.Top)
 	return px, py
 }
 
@@ -114,4 +115,45 @@ func drawMarker(img *image.RGBA, cx, cy int, c color.RGBA, radius int) {
 			}
 		}
 	}
+}
+
+// drawLine draws a line between two points using Bresenham's algorithm.
+func drawLine(img *image.RGBA, x0, y0, x1, y1 int, c color.RGBA) {
+	bounds := img.Bounds()
+
+	dx := abs(x1 - x0)
+	dy := -abs(y1 - y0)
+	sx, sy := 1, 1
+	if x0 >= x1 {
+		sx = -1
+	}
+	if y0 >= y1 {
+		sy = -1
+	}
+	err := dx + dy
+
+	for {
+		if x0 >= bounds.Min.X && x0 < bounds.Max.X && y0 >= bounds.Min.Y && y0 < bounds.Max.Y {
+			img.SetRGBA(x0, y0, c)
+		}
+		if x0 == x1 && y0 == y1 {
+			break
+		}
+		e2 := 2 * err
+		if e2 >= dy {
+			err += dy
+			x0 += sx
+		}
+		if e2 <= dx {
+			err += dx
+			y0 += sy
+		}
+	}
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Battery, Sun, Moon, Wifi, WifiOff, Play, Pause, Home, Wind, Droplets, AlertCircle, Clock, MapPin, LogOut } from 'lucide-react';
 import { useSSE } from '@/hooks/useSSE';
-import { startCleaning, pauseCleaning, dockVacuum, setFanSpeed, setMopMode, getAuthStatus, logout, fetchDevices } from '@/lib/api';
+import { startCleaning, pauseCleaning, dockVacuum, setFanSpeed, setMopMode, getAuthStatus, logout, fetchDevices, fetchScenes, executeScene } from '@/lib/api';
+import type { SceneInfo } from '@/lib/api';
 import { useTheme } from '@/contexts/ThemeContext';
 import { fanSpeeds, mopModes, formatCleanTime, formatCleanArea, formatDisplayName } from '@/types/status';
 import type { DeviceSummary } from '@/types/status';
@@ -23,12 +24,19 @@ export function App() {
   const { statuses, isConnected, error, reconnect } = useSSE();
   const { theme, toggleTheme } = useTheme();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [scenes, setScenes] = useState<SceneInfo[]>([]);
+  const [activeSceneId, setActiveSceneId] = useState<number | null>(null);
 
   useEffect(() => {
     getAuthStatus()
       .then(s => setAuthenticated(s.authenticated))
       .catch(() => setAuthenticated(false));
   }, []);
+
+  useEffect(() => {
+    if (!authenticated || !selectedSlug) return;
+    fetchScenes(selectedSlug).then(setScenes).catch(() => setScenes([]));
+  }, [authenticated, selectedSlug]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -41,6 +49,12 @@ export function App() {
   }, [authenticated, selectedSlug]);
 
   const status = selectedSlug ? statuses[selectedSlug] : undefined;
+  const isCleaning = status ? activeCleaningStates.has(status.state) : false;
+
+  // Clear active scene when device stops cleaning
+  useEffect(() => {
+    if (!isCleaning) setActiveSceneId(null);
+  }, [isCleaning]);
 
   const handleAction = async (action: string, fn: () => Promise<void>) => {
     setActionLoading(action);
@@ -101,9 +115,6 @@ export function App() {
 
         {/* Device Switcher */}
         <DeviceSwitcher devices={devices} selected={selectedSlug} onSelect={setSelectedSlug} />
-
-        {/* Map */}
-        {selectedSlug && <DeviceMap slug={selectedSlug} isCleaning={status?.in_cleaning ?? false} />}
 
         {/* Cleaning progress or status card */}
         {status && activeCleaningStates.has(status.state) ? (
@@ -190,8 +201,40 @@ export function App() {
                 ))}
               </div>
             </div>
+
+            {scenes.length > 0 && (
+              <div className="mb-6">
+                <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Programs</h2>
+                <div className="space-y-2">
+                  {scenes.map((scene) => (
+                    <button
+                      key={scene.id}
+                      onClick={() => {
+                        setActiveSceneId(scene.id);
+                        handleAction(`scene-${scene.id}`, () => executeScene(selectedSlug, scene.id));
+                      }}
+                      disabled={actionLoading?.startsWith('scene-') ?? false}
+                      className={`w-full p-3 rounded-lg border-2 transition-all touch-target flex items-center justify-between ${
+                        activeSceneId === scene.id && isCleaning
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border bg-card hover:bg-accent'
+                      }`}
+                    >
+                      <span className={`text-sm ${activeSceneId === scene.id && isCleaning ? 'text-primary font-medium' : 'text-foreground'}`}>{scene.name}</span>
+                      {activeSceneId === scene.id && isCleaning
+                        ? <span className="text-xs uppercase tracking-wide bg-primary text-primary-foreground px-2 py-0.5 rounded">Active</span>
+                        : <Play className="h-4 w-4 text-green-500" />
+                      }
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
+
+        {/* Map */}
+        {selectedSlug && <DeviceMap slug={selectedSlug} isCleaning={status?.in_cleaning ?? false} />}
 
         <div className="mt-8 text-center text-xs text-muted-foreground">roborock-mqtt</div>
       </div>

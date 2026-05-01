@@ -10,11 +10,12 @@ import (
 
 // ManagedDevice represents a single device with its cloud MQTT connection and status.
 type ManagedDevice struct {
-	Info     DeviceInfo
-	Slug     string
+	Info      DeviceInfo
+	Slug      string
 	CloudMQTT *CloudMQTT
 	Status    *PublishedStatus
 	MapPNG    []byte
+	Scenes    []Scene
 	pollCount int
 	mu        sync.RWMutex
 }
@@ -45,19 +46,21 @@ func (md *ManagedDevice) SetMapPNG(data []byte) {
 
 // DeviceManager manages multiple Roborock devices.
 type DeviceManager struct {
-	devices   []*ManagedDevice
-	bySlug    map[string]*ManagedDevice
-	loginData *LoginData
-	mu        sync.RWMutex
-	onStatus  func(slug string, status *PublishedStatus)
-	onMap     func(slug string, pngData []byte)
+	devices    []*ManagedDevice
+	bySlug     map[string]*ManagedDevice
+	loginData  *LoginData
+	restClient *Client
+	mu         sync.RWMutex
+	onStatus   func(slug string, status *PublishedStatus)
+	onMap      func(slug string, pngData []byte)
 }
 
 // NewDeviceManager creates a manager for the given devices.
-func NewDeviceManager(loginData *LoginData, devices []DeviceInfo) *DeviceManager {
+func NewDeviceManager(loginData *LoginData, devices []DeviceInfo, restClient *Client) *DeviceManager {
 	dm := &DeviceManager{
-		loginData: loginData,
-		bySlug:    make(map[string]*ManagedDevice),
+		loginData:  loginData,
+		restClient: restClient,
+		bySlug:     make(map[string]*ManagedDevice),
 	}
 
 	usedSlugs := make(map[string]int)
@@ -120,7 +123,26 @@ func (dm *DeviceManager) ConnectAll() {
 
 		dev.CloudMQTT = cloudMQTT
 		logger.Info("Connected device", "device", dev.Info.Name, "slug", dev.Slug)
+
+		// Fetch scenes for this device
+		if dm.restClient != nil {
+			scenes, err := dm.restClient.GetScenes(dev.Info.DID)
+			if err != nil {
+				logger.Warn("Failed to fetch scenes", "device", dev.Slug, "error", err)
+			} else {
+				dev.Scenes = scenes
+				logger.Info("Fetched scenes", "device", dev.Slug, "count", len(scenes))
+			}
+		}
 	}
+}
+
+// ExecuteScene triggers a scene via the REST API.
+func (dm *DeviceManager) ExecuteScene(sceneID int) error {
+	if dm.restClient == nil {
+		return fmt.Errorf("no REST client available")
+	}
+	return dm.restClient.ExecuteScene(sceneID)
 }
 
 // DisconnectAll disconnects all devices.
@@ -223,6 +245,7 @@ type DeviceSummary struct {
 	Model  string           `json:"model"`
 	Online bool             `json:"online"`
 	Status *PublishedStatus `json:"status,omitempty"`
+	Scenes []Scene          `json:"scenes,omitempty"`
 }
 
 // GetSummaries returns a list of device summaries for the API.
@@ -235,6 +258,7 @@ func (dm *DeviceManager) GetSummaries() []DeviceSummary {
 			Model:  md.Info.Model,
 			Online: md.CloudMQTT != nil && md.CloudMQTT.IsConnected(),
 			Status: md.GetStatus(),
+			Scenes: md.Scenes,
 		})
 	}
 	return summaries

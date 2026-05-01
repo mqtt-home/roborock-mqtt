@@ -31,6 +31,20 @@ func publishDeviceMap(slug string, pngData []byte) {
 	logger.Debug("Published map", "device", slug, "topic", topic, "size", len(pngData))
 }
 
+func publishDeviceScenes(slug string, scenes []roborock.Scene) {
+	cfg := config.Get()
+	topic := cfg.MQTT.Topic + "/" + slug + "/scenes"
+
+	data, err := json.Marshal(scenes)
+	if err != nil {
+		logger.Error("Failed to marshal scenes", "error", err)
+		return
+	}
+
+	mqtt.PublishAbsolute(topic, string(data), cfg.MQTT.Retain)
+	logger.Debug("Published scenes", "device", slug, "topic", topic, "count", len(scenes))
+}
+
 func publishDeviceStatus(slug string, status *roborock.PublishedStatus) {
 	cfg := config.Get()
 	topic := cfg.MQTT.Topic + "/" + slug + "/status"
@@ -68,6 +82,7 @@ func subscribeToCommands() {
 				Speed    string `json:"speed,omitempty"`
 				Mode     string `json:"mode,omitempty"`
 				Level    string `json:"level,omitempty"`
+				SceneID  int    `json:"scene_id,omitempty"`
 			}
 
 			if err := json.Unmarshal(payload, &cmd); err != nil {
@@ -75,12 +90,12 @@ func subscribeToCommands() {
 				return
 			}
 
-			go dispatchCommand(dev, cmd.Action, cmd.Segments, cmd.Speed, cmd.Mode, cmd.Level)
+			go dispatchCommand(dev, cmd.Action, cmd.Segments, cmd.Speed, cmd.Mode, cmd.Level, cmd.SceneID)
 		})
 	}
 }
 
-func dispatchCommand(dev *roborock.ManagedDevice, action string, segments []int, speed, mode, level string) {
+func dispatchCommand(dev *roborock.ManagedDevice, action string, segments []int, speed, mode, level string, sceneID int) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("Panic in command processing", "panic", r)
@@ -110,6 +125,9 @@ func dispatchCommand(dev *roborock.ManagedDevice, action string, segments []int,
 	case "set_water_box":
 		logger.Info("Setting water box level", "device", dev.Slug, "level", level)
 		err = dev.CloudMQTT.SetWaterBox(level)
+	case "scene":
+		logger.Info("Executing scene", "device", dev.Slug, "sceneID", sceneID)
+		err = deviceManager.ExecuteScene(sceneID)
 	default:
 		logger.Warn("Unknown action", "device", dev.Slug, "action", action)
 		return
@@ -128,12 +146,19 @@ func startBridge(restClient *roborock.Client) {
 	mqtt.Start(cfg.MQTT, "roborock_mqtt")
 
 	// Create device manager for all devices
-	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices())
+	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices(), restClient)
 	deviceManager.SetStatusCallback(publishDeviceStatus)
 	deviceManager.SetMapCallback(publishDeviceMap)
 
 	// Connect all devices to Roborock cloud MQTT
 	deviceManager.ConnectAll()
+
+	// Publish scenes per device
+	for _, md := range deviceManager.GetDevices() {
+		if len(md.Scenes) > 0 {
+			publishDeviceScenes(md.Slug, md.Scenes)
+		}
+	}
 
 	// Initial poll
 	deviceManager.PollAll()
