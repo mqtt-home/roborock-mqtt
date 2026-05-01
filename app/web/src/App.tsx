@@ -8,6 +8,7 @@ import type { DeviceSummary } from '@/types/status';
 import { LoginPage } from '@/components/LoginPage';
 import { DeviceSwitcher } from '@/components/DeviceSwitcher';
 import { CleaningProgress } from '@/components/CleaningProgress';
+import { DeviceMap } from '@/components/DeviceMap';
 
 const activeCleaningStates = new Set([
   'cleaning', 'spot_cleaning', 'segment_cleaning', 'zoned_cleaning',
@@ -100,6 +101,9 @@ export function App() {
 
         {/* Device Switcher */}
         <DeviceSwitcher devices={devices} selected={selectedSlug} onSelect={setSelectedSlug} />
+
+        {/* Map */}
+        {selectedSlug && <DeviceMap slug={selectedSlug} isCleaning={status?.in_cleaning ?? false} />}
 
         {/* Cleaning progress or status card */}
         {status && activeCleaningStates.has(status.state) ? (

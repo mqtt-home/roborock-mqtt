@@ -24,6 +24,13 @@ var (
 	stopPolling   chan struct{}
 )
 
+func publishDeviceMap(slug string, pngData []byte) {
+	cfg := config.Get()
+	topic := cfg.MQTT.Topic + "/" + slug + "/map"
+	mqtt.PublishAbsolute(topic, pngData, cfg.MQTT.Retain)
+	logger.Debug("Published map", "device", slug, "topic", topic, "size", len(pngData))
+}
+
 func publishDeviceStatus(slug string, status *roborock.PublishedStatus) {
 	cfg := config.Get()
 	topic := cfg.MQTT.Topic + "/" + slug + "/status"
@@ -123,6 +130,7 @@ func startBridge(restClient *roborock.Client) {
 	// Create device manager for all devices
 	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices())
 	deviceManager.SetStatusCallback(publishDeviceStatus)
+	deviceManager.SetMapCallback(publishDeviceMap)
 
 	// Connect all devices to Roborock cloud MQTT
 	deviceManager.ConnectAll()

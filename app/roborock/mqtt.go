@@ -1,9 +1,12 @@
 package roborock
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"sync"
 	"time"
@@ -12,6 +15,8 @@ import (
 	"github.com/philipparndt/go-logger"
 )
 
+const protocolMap = 301
+
 // CloudMQTT manages the MQTT connection to the Roborock cloud broker.
 type CloudMQTT struct {
 	client       pahomqtt.Client
@@ -19,6 +24,8 @@ type CloudMQTT struct {
 	device       *DeviceInfo
 	mqttUsername  string
 	tracker      *RequestTracker
+	mapSecurity  *MapSecurityData
+	mapChan      chan []byte
 	onStatus     func(*DeviceStatus)
 	mu           sync.Mutex
 	connected    bool
@@ -124,7 +131,13 @@ func (cm *CloudMQTT) handleMessage(_ pahomqtt.Client, mqttMsg pahomqtt.Message) 
 		return
 	}
 
-	logger.Debug("Decoded message", "protocol", header.Protocol, "seq", header.SequenceNumber, "payload", string(payload))
+	logger.Debug("Decoded message", "protocol", header.Protocol, "seq", header.SequenceNumber, "len", len(payload))
+
+	// Protocol 301 = map data
+	if header.Protocol == protocolMap {
+		cm.handleMapResponse(payload)
+		return
+	}
 
 	// Parse as MQTTMessage to extract DPS
 	var msg MQTTMessage
@@ -160,6 +173,14 @@ func (cm *CloudMQTT) handleMessage(_ pahomqtt.Client, mqttMsg pahomqtt.Message) 
 
 func (cm *CloudMQTT) processIPCResult(result any) {
 	if cm.onStatus == nil {
+		return
+	}
+
+	// Only try to parse dict/list results as status — skip strings
+	switch result.(type) {
+	case string:
+		return
+	case nil:
 		return
 	}
 
@@ -368,4 +389,91 @@ func (cm *CloudMQTT) PollConsumables() (*ConsumableStatus, error) {
 	}
 
 	return ParseConsumableStatus(resp)
+}
+
+// handleMapResponse processes a Protocol 301 map data message.
+func (cm *CloudMQTT) handleMapResponse(encrypted []byte) {
+	if cm.mapSecurity == nil {
+		logger.Debug("Received map data but no pending map request")
+		return
+	}
+
+	// Map response has a 24-byte header: 8 bytes endpoint, 8 bytes padding, 2 bytes request_id, 6 bytes padding
+	if len(encrypted) < 24 {
+		logger.Warn("Map data too short for header", "len", len(encrypted))
+		return
+	}
+
+	mapBody := encrypted[24:]
+	logger.Debug("Map data body", "headerLen", 24, "bodyLen", len(mapBody))
+
+	// Decrypt with CBC using the nonce
+	decrypted, err := cm.mapSecurity.DecryptMapData(mapBody)
+	if err != nil {
+		logger.Warn("Failed to decrypt map data", "error", err)
+		return
+	}
+
+	// Decompress gzip
+	reader, err := gzip.NewReader(bytes.NewReader(decrypted))
+	if err != nil {
+		logger.Warn("Failed to decompress map data", "error", err)
+		return
+	}
+	defer reader.Close()
+
+	mapBytes, err := io.ReadAll(reader)
+	if err != nil {
+		logger.Warn("Failed to read decompressed map data", "error", err)
+		return
+	}
+
+	logger.Debug("Map data received", "size", len(mapBytes))
+
+	// Send to map channel
+	if cm.mapChan != nil {
+		select {
+		case cm.mapChan <- mapBytes:
+		default:
+		}
+	}
+}
+
+// PollMap requests and returns the current map as a PNG image.
+func (cm *CloudMQTT) PollMap() ([]byte, error) {
+	payload, _, security, err := BuildGetMapPayload()
+	if err != nil {
+		return nil, err
+	}
+
+	// Set up map channel to receive the response
+	cm.mapChan = make(chan []byte, 1)
+	cm.mapSecurity = security
+	defer func() {
+		cm.mapSecurity = nil
+		cm.mapChan = nil
+	}()
+
+	// Send the request (fire-and-forget, response comes as Protocol 301)
+	if err := cm.SendCommandNoWait(payload); err != nil {
+		return nil, fmt.Errorf("send map request: %w", err)
+	}
+
+	// Wait for map data
+	select {
+	case mapBytes := <-cm.mapChan:
+		mapData, err := ParseMapData(mapBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse map: %w", err)
+		}
+
+		pngData, err := RenderMapPNG(mapData)
+		if err != nil {
+			return nil, fmt.Errorf("render map: %w", err)
+		}
+
+		return pngData, nil
+	case <-time.After(30 * time.Second):
+		return nil, fmt.Errorf("map request timed out after 30s")
+	}
 }

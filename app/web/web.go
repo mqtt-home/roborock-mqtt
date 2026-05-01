@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -54,7 +55,7 @@ func (ws *WebServer) SetDeviceManager(dm *roborock.DeviceManager) {
 }
 
 func (ws *WebServer) setupRoutes() {
-	ws.router.Use(loggerchi.Logger())
+	ws.router.Use(loggerchi.LoggerWithLevel(slog.LevelDebug))
 	ws.router.Use(middleware.Recoverer)
 
 	ws.router.Use(cors.Handler(cors.Options{
@@ -84,6 +85,7 @@ func (ws *WebServer) setupRoutes() {
 			r.Post("/dock", ws.deviceCommand("dock"))
 			r.Post("/fan-speed", ws.deviceFanSpeed)
 			r.Post("/mop-mode", ws.deviceMopMode)
+			r.Get("/map", ws.deviceMap)
 		})
 
 		r.Get("/events", ws.handleSSE)
@@ -272,6 +274,21 @@ func (ws *WebServer) deviceMopMode(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	ws.jsonOK(w)
+}
+
+func (ws *WebServer) deviceMap(w http.ResponseWriter, r *http.Request) {
+	dev := ws.getDeviceFromRequest(w, r)
+	if dev == nil {
+		return
+	}
+	mapPNG := dev.GetMapPNG()
+	if mapPNG == nil {
+		http.Error(w, "No map available", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(mapPNG)
 }
 
 func (ws *WebServer) getDeviceFromRequest(w http.ResponseWriter, r *http.Request) *roborock.ManagedDevice {

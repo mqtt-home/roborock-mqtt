@@ -13,8 +13,10 @@ type ManagedDevice struct {
 	Info     DeviceInfo
 	Slug     string
 	CloudMQTT *CloudMQTT
-	Status   *PublishedStatus
-	mu       sync.RWMutex
+	Status    *PublishedStatus
+	MapPNG    []byte
+	pollCount int
+	mu        sync.RWMutex
 }
 
 func (md *ManagedDevice) GetStatus() *PublishedStatus {
@@ -29,6 +31,18 @@ func (md *ManagedDevice) SetStatus(s *PublishedStatus) {
 	md.Status = s
 }
 
+func (md *ManagedDevice) GetMapPNG() []byte {
+	md.mu.RLock()
+	defer md.mu.RUnlock()
+	return md.MapPNG
+}
+
+func (md *ManagedDevice) SetMapPNG(data []byte) {
+	md.mu.Lock()
+	defer md.mu.Unlock()
+	md.MapPNG = data
+}
+
 // DeviceManager manages multiple Roborock devices.
 type DeviceManager struct {
 	devices   []*ManagedDevice
@@ -36,6 +50,7 @@ type DeviceManager struct {
 	loginData *LoginData
 	mu        sync.RWMutex
 	onStatus  func(slug string, status *PublishedStatus)
+	onMap     func(slug string, pngData []byte)
 }
 
 // NewDeviceManager creates a manager for the given devices.
@@ -67,6 +82,11 @@ func NewDeviceManager(loginData *LoginData, devices []DeviceInfo) *DeviceManager
 // SetStatusCallback sets the function called when any device's status changes.
 func (dm *DeviceManager) SetStatusCallback(cb func(slug string, status *PublishedStatus)) {
 	dm.onStatus = cb
+}
+
+// SetMapCallback sets the function called when a device's map is updated.
+func (dm *DeviceManager) SetMapCallback(cb func(slug string, pngData []byte)) {
+	dm.onMap = cb
 }
 
 // ConnectAll establishes cloud MQTT connections for all devices.
@@ -112,7 +132,7 @@ func (dm *DeviceManager) DisconnectAll() {
 	}
 }
 
-// PollAll polls status and consumables for all connected devices.
+// PollAll polls status, consumables, and maps for all connected devices.
 func (dm *DeviceManager) PollAll() {
 	for _, md := range dm.devices {
 		if md.CloudMQTT == nil || !md.CloudMQTT.IsConnected() {
@@ -148,6 +168,21 @@ func (dm *DeviceManager) PollAll() {
 		md.SetStatus(published)
 		if dm.onStatus != nil {
 			dm.onStatus(md.Slug, published)
+		}
+
+		// Map polling: every cycle during cleaning, every 5th cycle when idle
+		md.pollCount++
+		shouldPollMap := published.InCleaning || md.pollCount%5 == 0
+		if shouldPollMap {
+			mapPNG, err := md.CloudMQTT.PollMap()
+			if err != nil {
+				logger.Debug("Failed to poll map", "device", md.Slug, "error", err)
+			} else if mapPNG != nil {
+				md.SetMapPNG(mapPNG)
+				if dm.onMap != nil {
+					dm.onMap(md.Slug, mapPNG)
+				}
+			}
 		}
 	}
 }

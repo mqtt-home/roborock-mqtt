@@ -224,6 +224,40 @@ func BuildGetConsumablePayload() ([]byte, int, error) {
 	return buildIPCPayload("get_consumable", []any{})
 }
 
+// BuildGetMapPayload creates the payload for GET_MAP_V1 with security nonce.
+func BuildGetMapPayload() ([]byte, int, *MapSecurityData, error) {
+	security := GenerateMapSecurity()
+	id := nextRequestID()
+	ipcReq := IPCRequest{
+		ID:     id,
+		Method: "get_map_v1",
+		Params: []any{},
+		Security: map[string]string{
+			"endpoint": security.Endpoint,
+			"nonce":    security.Nonce,
+		},
+	}
+
+	ipcJSON, err := json.Marshal(ipcReq)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("marshal IPC request: %w", err)
+	}
+
+	msg := MQTTMessage{
+		DPS: map[string]any{
+			"101": string(ipcJSON),
+		},
+		T: time.Now().Unix(),
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("marshal MQTT message: %w", err)
+	}
+
+	return data, id, security, nil
+}
+
 // ParseStatusFromProps parses device status from a GET_PROP response.
 func ParseStatusFromProps(data []byte) (*DeviceStatus, error) {
 	var result []DeviceStatus

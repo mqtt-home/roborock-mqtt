@@ -3,7 +3,9 @@ package roborock
 import (
 	"bytes"
 	"crypto/aes"
+	"crypto/cipher"
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -132,4 +134,57 @@ func validateCRC32(headerAndBody []byte, expectedCRC uint32) bool {
 // readCRC32 reads a 4-byte CRC32 value from raw bytes.
 func readCRC32(data []byte) uint32 {
 	return binary.BigEndian.Uint32(data)
+}
+
+// decryptCBC decrypts AES-128 CBC encrypted data using the given key and IV.
+func decryptCBC(data []byte, key []byte, iv []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data)%aes.BlockSize != 0 {
+		return nil, fmt.Errorf("CBC data length %d is not a multiple of block size", len(data))
+	}
+
+	mode := cipher.NewCBCDecrypter(block, iv)
+	decrypted := make([]byte, len(data))
+	mode.CryptBlocks(decrypted, data)
+
+	return pkcs5Unpad(decrypted)
+}
+
+// MapSecurityData holds the nonce and endpoint for map requests.
+type MapSecurityData struct {
+	Endpoint string `json:"endpoint"`
+	Nonce    string `json:"nonce"`
+	nonce    []byte // raw nonce bytes for decryption
+}
+
+const nonceGenerationSalt = "ThisIsASecret"
+const mapEndpoint = "aAbBz0"
+
+// GenerateMapSecurity creates security data for a GET_MAP_V1 request.
+func GenerateMapSecurity() *MapSecurityData {
+	nonce := make([]byte, 16)
+	rand.Read(nonce)
+	nonceHex := hex.EncodeToString(nonce)
+
+	endpointHash := md5.Sum([]byte(mapEndpoint))
+	endpointB64 := hex.EncodeToString(endpointHash[:])
+
+	return &MapSecurityData{
+		Endpoint: endpointB64,
+		Nonce:    nonceHex,
+		nonce:    nonce,
+	}
+}
+
+// DecryptMapData decrypts map response data using CBC.
+// Key = raw nonce bytes (16 bytes), IV = all zeros.
+func (s *MapSecurityData) DecryptMapData(data []byte) ([]byte, error) {
+	key := s.nonce
+	iv := make([]byte, aes.BlockSize) // all zeros
+
+	return decryptCBC(data, key, iv)
 }
