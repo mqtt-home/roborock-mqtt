@@ -9,7 +9,7 @@ import type { DeviceSummary } from '@/types/status';
 import { LoginPage } from '@/components/LoginPage';
 import { DeviceSwitcher } from '@/components/DeviceSwitcher';
 import { CleaningProgress } from '@/components/CleaningProgress';
-import { DeviceMap } from '@/components/DeviceMap';
+import { VectorMap } from '@/components/VectorMap';
 
 const activeCleaningStates = new Set([
   'cleaning', 'spot_cleaning', 'segment_cleaning', 'zoned_cleaning',
@@ -234,7 +234,7 @@ export function App() {
         )}
 
         {/* Map */}
-        {selectedSlug && <DeviceMap slug={selectedSlug} isCleaning={status?.in_cleaning ?? false} />}
+        {selectedSlug && <VectorMap slug={selectedSlug} isCleaning={status?.in_cleaning ?? false} />}
 
         <div className="mt-8 text-center text-xs text-muted-foreground">roborock-mqtt</div>
       </div>

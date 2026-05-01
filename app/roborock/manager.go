@@ -2,6 +2,8 @@ package roborock
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -12,12 +14,13 @@ import (
 type ManagedDevice struct {
 	Info      DeviceInfo
 	Slug      string
-	CloudMQTT *CloudMQTT
-	Status    *PublishedStatus
-	MapPNG    []byte
-	Scenes    []Scene
-	pollCount int
-	mu        sync.RWMutex
+	CloudMQTT    *CloudMQTT
+	Status       *PublishedStatus
+	MapPNG       []byte
+	VectorMapJSON []byte
+	Scenes       []Scene
+	pollCount    int
+	mu           sync.RWMutex
 }
 
 func (md *ManagedDevice) GetStatus() *PublishedStatus {
@@ -30,6 +33,12 @@ func (md *ManagedDevice) SetStatus(s *PublishedStatus) {
 	md.mu.Lock()
 	defer md.mu.Unlock()
 	md.Status = s
+}
+
+func (md *ManagedDevice) GetVectorMapJSON() []byte {
+	md.mu.RLock()
+	defer md.mu.RUnlock()
+	return md.VectorMapJSON
 }
 
 func (md *ManagedDevice) GetMapPNG() []byte {
@@ -137,6 +146,46 @@ func (dm *DeviceManager) ConnectAll() {
 	}
 }
 
+func (dm *DeviceManager) mapCacheDir() string {
+	if dm.restClient == nil || dm.restClient.sessionDir == "" {
+		return ""
+	}
+	return filepath.Join(dm.restClient.sessionDir, "maps")
+}
+
+// SaveMapCache writes a device's map PNG to disk.
+func (dm *DeviceManager) SaveMapCache(slug string, pngData []byte) {
+	dir := dm.mapCacheDir()
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		logger.Debug("Failed to create map cache dir", "error", err)
+		return
+	}
+	file := filepath.Join(dir, slug+".png")
+	if err := os.WriteFile(file, pngData, 0600); err != nil {
+		logger.Debug("Failed to save map cache", "device", slug, "error", err)
+	}
+}
+
+// LoadMapCaches loads cached map PNGs from disk into each device's MapPNG.
+func (dm *DeviceManager) LoadMapCaches() {
+	dir := dm.mapCacheDir()
+	if dir == "" {
+		return
+	}
+	for _, md := range dm.devices {
+		file := filepath.Join(dir, md.Slug+".png")
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		md.MapPNG = data
+		logger.Info("Loaded cached map", "device", md.Slug, "size", len(data))
+	}
+}
+
 // ExecuteScene triggers a scene via the REST API.
 func (dm *DeviceManager) ExecuteScene(sceneID int) error {
 	if dm.restClient == nil {
@@ -196,11 +245,20 @@ func (dm *DeviceManager) PollAll() {
 		md.pollCount++
 		shouldPollMap := published.InCleaning || md.pollCount%5 == 0
 		if shouldPollMap {
-			mapPNG, err := md.CloudMQTT.PollMap()
+			mapPNG, mapData, err := md.CloudMQTT.PollMap()
 			if err != nil {
 				logger.Debug("Failed to poll map", "device", md.Slug, "error", err)
 			} else if mapPNG != nil {
 				md.SetMapPNG(mapPNG)
+				go dm.SaveMapCache(md.Slug, mapPNG)
+				if mapData != nil {
+					vectorJSON, err := MapToVectorJSON(mapData)
+					if err == nil && vectorJSON != nil {
+						md.mu.Lock()
+						md.VectorMapJSON = vectorJSON
+						md.mu.Unlock()
+					}
+				}
 				if dm.onMap != nil {
 					dm.onMap(md.Slug, mapPNG)
 				}

@@ -150,6 +150,14 @@ func startBridge(restClient *roborock.Client) {
 	deviceManager.SetStatusCallback(publishDeviceStatus)
 	deviceManager.SetMapCallback(publishDeviceMap)
 
+	// Load cached maps from disk (available before first poll)
+	deviceManager.LoadMapCaches()
+	for _, md := range deviceManager.GetDevices() {
+		if png := md.GetMapPNG(); png != nil {
+			publishDeviceMap(md.Slug, png)
+		}
+	}
+
 	// Connect all devices to Roborock cloud MQTT
 	deviceManager.ConnectAll()
 

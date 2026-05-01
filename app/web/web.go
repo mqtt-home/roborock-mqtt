@@ -86,6 +86,7 @@ func (ws *WebServer) setupRoutes() {
 			r.Post("/fan-speed", ws.deviceFanSpeed)
 			r.Post("/mop-mode", ws.deviceMopMode)
 			r.Get("/map", ws.deviceMap)
+			r.Get("/map.json", ws.deviceMapJSON)
 			r.Get("/scenes", ws.deviceScenes)
 			r.Post("/scenes/{id}/execute", ws.executeScene)
 		})
@@ -308,6 +309,21 @@ func (ws *WebServer) executeScene(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws.jsonOK(w)
+}
+
+func (ws *WebServer) deviceMapJSON(w http.ResponseWriter, r *http.Request) {
+	dev := ws.getDeviceFromRequest(w, r)
+	if dev == nil {
+		return
+	}
+	data := dev.GetVectorMapJSON()
+	if data == nil {
+		http.Error(w, "No map available", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(data)
 }
 
 func (ws *WebServer) deviceMap(w http.ResponseWriter, r *http.Request) {

@@ -439,14 +439,13 @@ func (cm *CloudMQTT) handleMapResponse(encrypted []byte) {
 	}
 }
 
-// PollMap requests and returns the current map as a PNG image.
-func (cm *CloudMQTT) PollMap() ([]byte, error) {
+// PollMap requests and returns the current map as PNG and parsed data.
+func (cm *CloudMQTT) PollMap() ([]byte, *MapData, error) {
 	payload, _, security, err := BuildGetMapPayload()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// Set up map channel to receive the response
 	cm.mapChan = make(chan []byte, 1)
 	cm.mapSecurity = security
 	defer func() {
@@ -454,26 +453,24 @@ func (cm *CloudMQTT) PollMap() ([]byte, error) {
 		cm.mapChan = nil
 	}()
 
-	// Send the request (fire-and-forget, response comes as Protocol 301)
 	if err := cm.SendCommandNoWait(payload); err != nil {
-		return nil, fmt.Errorf("send map request: %w", err)
+		return nil, nil, fmt.Errorf("send map request: %w", err)
 	}
 
-	// Wait for map data
 	select {
 	case mapBytes := <-cm.mapChan:
 		mapData, err := ParseMapData(mapBytes)
 		if err != nil {
-			return nil, fmt.Errorf("parse map: %w", err)
+			return nil, nil, fmt.Errorf("parse map: %w", err)
 		}
 
 		pngData, err := RenderMapPNG(mapData)
 		if err != nil {
-			return nil, fmt.Errorf("render map: %w", err)
+			return nil, nil, fmt.Errorf("render map: %w", err)
 		}
 
-		return pngData, nil
+		return pngData, mapData, nil
 	case <-time.After(30 * time.Second):
-		return nil, fmt.Errorf("map request timed out after 30s")
+		return nil, nil, fmt.Errorf("map request timed out after 30s")
 	}
 }
