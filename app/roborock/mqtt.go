@@ -17,19 +17,22 @@ import (
 
 const protocolMap = 301
 
+const maxConsecutiveTimeouts = 3
+
 // CloudMQTT manages the MQTT connection to the Roborock cloud broker.
 type CloudMQTT struct {
-	client       pahomqtt.Client
-	loginData    *LoginData
-	device       *DeviceInfo
-	mqttUsername  string
-	tracker      *RequestTracker
-	mapSecurity  *MapSecurityData
-	mapChan      chan []byte
-	onStatus     func(*DeviceStatus)
-	mu           sync.Mutex
-	connected    bool
-	stopCh       chan struct{}
+	client              pahomqtt.Client
+	loginData           *LoginData
+	device              *DeviceInfo
+	mqttUsername         string
+	tracker             *RequestTracker
+	mapSecurity         *MapSecurityData
+	mapChan             chan []byte
+	onStatus            func(*DeviceStatus)
+	mu                  sync.Mutex
+	connected           bool
+	consecutiveTimeouts int
+	stopCh              chan struct{}
 }
 
 // NewCloudMQTT creates a new Roborock cloud MQTT client.
@@ -120,6 +123,7 @@ func (cm *CloudMQTT) onConnectionLost(_ pahomqtt.Client, err error) {
 
 func (cm *CloudMQTT) handleMessage(_ pahomqtt.Client, mqttMsg pahomqtt.Message) {
 	logger.Debug("Received cloud MQTT message", "topic", mqttMsg.Topic(), "len", len(mqttMsg.Payload()))
+	cm.resetTimeouts()
 
 	header, payload, err := DecodeMessage(mqttMsg.Payload(), cm.device.DeviceKey)
 	if err != nil {
@@ -230,11 +234,50 @@ func (cm *CloudMQTT) SendCommand(payload []byte, requestID int) ([]byte, error) 
 	select {
 	case resp, ok := <-req.Response:
 		if !ok {
+			cm.recordTimeout()
 			return nil, fmt.Errorf("request timed out")
 		}
+		cm.resetTimeouts()
 		return resp, nil
 	case <-time.After(15 * time.Second):
+		cm.recordTimeout()
 		return nil, fmt.Errorf("command timed out after 15s")
+	}
+}
+
+func (cm *CloudMQTT) recordTimeout() {
+	cm.mu.Lock()
+	cm.consecutiveTimeouts++
+	count := cm.consecutiveTimeouts
+	cm.mu.Unlock()
+
+	if count >= maxConsecutiveTimeouts {
+		logger.Warn("Too many consecutive timeouts, forcing reconnect", "device", cm.device.Name, "timeouts", count)
+		go cm.forceReconnect()
+	}
+}
+
+func (cm *CloudMQTT) resetTimeouts() {
+	cm.mu.Lock()
+	cm.consecutiveTimeouts = 0
+	cm.mu.Unlock()
+}
+
+func (cm *CloudMQTT) forceReconnect() {
+	cm.mu.Lock()
+	cm.consecutiveTimeouts = 0
+	cm.connected = false
+	cm.mu.Unlock()
+
+	if cm.client != nil {
+		cm.client.Disconnect(500)
+		time.Sleep(2 * time.Second)
+		token := cm.client.Connect()
+		if token.Wait() && token.Error() != nil {
+			logger.Error("Failed to reconnect", "device", cm.device.Name, "error", token.Error())
+		} else {
+			logger.Info("Reconnected to Roborock cloud MQTT", "device", cm.device.Name)
+		}
 	}
 }
 
@@ -260,13 +303,18 @@ func (cm *CloudMQTT) SendCommandNoWait(payload []byte) error {
 }
 
 func (cm *CloudMQTT) cleanupLoop() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	cleanupTicker := time.NewTicker(30 * time.Second)
+	reconnectTicker := time.NewTicker(90 * time.Minute)
+	defer cleanupTicker.Stop()
+	defer reconnectTicker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-cleanupTicker.C:
 			cm.tracker.Cleanup(60 * time.Second)
+		case <-reconnectTicker.C:
+			logger.Info("Proactive reconnect to keep session fresh", "device", cm.device.Name)
+			cm.forceReconnect()
 		case <-cm.stopCh:
 			return
 		}

@@ -105,7 +105,7 @@ func LoadConfig(file string) (Config, error) {
 	}
 
 	if cfg.Roborock.PollingInterval == 0 {
-		cfg.Roborock.PollingInterval = 30
+		cfg.Roborock.PollingInterval = 60
 	}
 
 	if cfg.Web.Port == 0 {

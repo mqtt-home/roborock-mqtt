@@ -32,6 +32,7 @@ type Client struct {
 	loginData  *LoginData
 	device     *DeviceInfo
 	devices    []DeviceInfo
+	rooms      []RoomInfo
 	sessionDir string
 }
 
@@ -39,6 +40,7 @@ type Client struct {
 type SavedSession struct {
 	LoginData LoginData    `json:"login_data"`
 	Devices   []DeviceInfo `json:"devices,omitempty"`
+	Rooms     []RoomInfo   `json:"rooms,omitempty"`
 }
 
 func NewClient(baseURL, username, password, clientID string) *Client {
@@ -77,6 +79,7 @@ func (c *Client) SaveSession() error {
 	session := SavedSession{
 		LoginData: *c.loginData,
 		Devices:   c.devices,
+		Rooms:     c.rooms,
 	}
 
 	data, err := json.MarshalIndent(session, "", "  ")
@@ -110,9 +113,11 @@ func (c *Client) LoadSession() bool {
 		c.devices = session.Devices
 		c.device = &c.devices[0]
 	}
+	c.rooms = session.Rooms
 	logger.Info("Restored session from disk",
 		"user", c.loginData.Nickname,
 		"devices", len(c.devices),
+		"rooms", len(c.rooms),
 	)
 	return true
 }
@@ -471,6 +476,8 @@ func (c *Client) DiscoverDevice() error {
 
 	c.devices = allDevices
 	c.device = &allDevices[0]
+	c.rooms = homeData.Rooms
+
 	for _, dev := range allDevices {
 		logger.Info("Discovered device",
 			"name", dev.Name,
@@ -479,6 +486,9 @@ func (c *Client) DiscoverDevice() error {
 			"online", dev.Online,
 			"slug", Slugify(dev.Name),
 		)
+	}
+	for _, room := range c.rooms {
+		logger.Info("Discovered room", "id", room.ID, "name", room.Name)
 	}
 
 	return nil
@@ -497,6 +507,20 @@ func (c *Client) GetDevice() *DeviceInfo {
 // GetDevices returns all discovered devices.
 func (c *Client) GetDevices() []DeviceInfo {
 	return c.devices
+}
+
+// GetRooms returns the rooms discovered from the home data.
+func (c *Client) GetRooms() []RoomInfo {
+	return c.rooms
+}
+
+// GetRoomNameMap returns a map of room ID (as string) to room name.
+func (c *Client) GetRoomNameMap() map[string]string {
+	names := make(map[string]string)
+	for _, r := range c.rooms {
+		names[fmt.Sprintf("%d", r.ID)] = r.Name
+	}
+	return names
 }
 
 // GetScenes fetches cleaning scenes/programs for a device using Hawk auth against the RRIOT API.
