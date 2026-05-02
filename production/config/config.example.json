@@ -10,11 +10,49 @@
     "password": "your-password",
     "client_id": "<client-id>",
     "base_url": "https://euiot.roborock.com",
-    "polling_interval": 30
+    "polling_interval": 30,
+    "schedules": {
+      "My Vacuum": {
+        "normal": [
+          { "time": "09:00", "action": "scene", "scene_id": 12345 }
+        ],
+        "weekend": [
+          { "time": "11:00", "action": "scene", "scene_id": 12345 }
+        ],
+        "free": [],
+        "notAtHome": []
+      }
+    },
+    "schedule_signals": {
+      "public_holiday": "rules/public-holiday",
+      "vacation": "rules/free-day"
+    }
   },
   "web": {
     "enabled": true,
     "port": 8080
+  },
+  "notifications": {
+    "email": {
+      "enabled": false,
+      "smtp_host": "smtp.example.com",
+      "smtp_port": 587,
+      "username": "${SMTP_USER}",
+      "password": "${SMTP_PASS}",
+      "from": "roborock@example.com",
+      "to": "user@example.com"
+    },
+    "thresholds": {
+      "warn_percent": 20,
+      "critical_percent": 10
+    },
+    "consumable_lifetimes": {
+      "main_brush": 1080000,
+      "side_brush": 720000,
+      "filter": 540000,
+      "sensor": 108000,
+      "dust_collection": 20
+    }
   },
   "loglevel": "info"
 }

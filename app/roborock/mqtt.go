@@ -351,6 +351,15 @@ func (cm *CloudMQTT) SetWaterBox(level string) error {
 	return cm.SendCommandNoWait(payload)
 }
 
+// ResetConsumable resets a consumable counter on the device.
+func (cm *CloudMQTT) ResetConsumable(name string) error {
+	payload, _, err := BuildResetConsumablePayload(name)
+	if err != nil {
+		return err
+	}
+	return cm.SendCommandNoWait(payload)
+}
+
 // PollStatus requests the current device status.
 func (cm *CloudMQTT) PollStatus() (*DeviceStatus, error) {
 	payload, requestID, err := BuildGetStatusPayload()

@@ -13,6 +13,8 @@ import { VectorMap } from '@/components/VectorMap';
 import { ScheduleSection } from '@/components/ScheduleSection';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { ControlsPage } from '@/components/ControlsPage';
+import { MaintenancePage } from '@/components/MaintenancePage';
+import { Wrench } from 'lucide-react';
 
 const activeCleaningStates = new Set([
   'cleaning', 'spot_cleaning', 'segment_cleaning', 'zoned_cleaning',
@@ -33,6 +35,7 @@ export function App() {
   const [pendingScene, setPendingScene] = useState<SceneInfo | null>(null);
   const [globalNotAtHome, setGlobalNotAtHome] = useState(false);
   const [showControlsPage, setShowControlsPage] = useState(false);
+  const [showMaintenancePage, setShowMaintenancePage] = useState(false);
 
   useEffect(() => {
     getAuthStatus()
@@ -260,6 +263,36 @@ export function App() {
           </div>
         )}
 
+        {/* Maintenance summary card */}
+        {selectedSlug && status && !isEmptyStatus && status.consumable_percents && (
+          <div className="mb-6">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Maintenance</h2>
+            <button
+              onClick={() => setShowMaintenancePage(true)}
+              className={`w-full p-4 bg-card rounded-lg border hover:bg-accent transition-colors text-left ${
+                Math.min(status.consumable_percents.main_brush, status.consumable_percents.side_brush, status.consumable_percents.filter, status.consumable_percents.sensor, status.consumable_percents.dust_collection) <= 20
+                  ? 'border-red-500/30'
+                  : 'border-border'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-sm">
+                  <Wrench className="h-4 w-4 text-muted-foreground" />
+                  {(() => {
+                    const p = status.consumable_percents;
+                    const worst = Math.min(p.main_brush, p.side_brush, p.filter, p.sensor, p.dust_collection);
+                    const worstName = worst === p.main_brush ? 'Main Brush' : worst === p.side_brush ? 'Side Brush' : worst === p.filter ? 'Filter' : worst === p.sensor ? 'Sensor' : 'Dust Collection';
+                    if (worst > 50) return <span className="text-green-500">All good</span>;
+                    if (worst > 20) return <span className="text-amber-500">{worstName}: {worst}%</span>;
+                    return <span className="text-red-500">{worstName}: {worst}%</span>;
+                  })()}
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </button>
+          </div>
+        )}
+
         {/* Schedule */}
         {selectedSlug && (
           <ScheduleSection
@@ -275,6 +308,16 @@ export function App() {
 
         <div className="mt-8 text-center text-xs text-muted-foreground">roborock-mqtt</div>
       </div>
+
+      {showMaintenancePage && selectedSlug && status && (
+        <MaintenancePage
+          slug={selectedSlug}
+          deviceName={devices.find(d => d.slug === selectedSlug)?.name ?? selectedSlug}
+          percents={status.consumable_percents}
+          consumables={status.consumables}
+          onClose={() => setShowMaintenancePage(false)}
+        />
+      )}
 
       {showControlsPage && selectedSlug && (
         <ControlsPage

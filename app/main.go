@@ -21,12 +21,13 @@ import (
 
 var (
 	deviceManager   *roborock.DeviceManager
-	scheduleEngine  *roborock.ScheduleEngine
-	notAtHomeStore  *roborock.NotAtHomeStore
-	scheduleStore   *roborock.ScheduleStore
-	stopPolling     chan struct{}
-	stopSchedule    chan struct{}
-	dataDir         string
+	scheduleEngine     *roborock.ScheduleEngine
+	notAtHomeStore     *roborock.NotAtHomeStore
+	scheduleStore      *roborock.ScheduleStore
+	maintenanceChecker *roborock.MaintenanceChecker
+	stopPolling        chan struct{}
+	stopSchedule       chan struct{}
+	dataDir            string
 )
 
 func publishDeviceMap(slug string, pngData []byte) {
@@ -164,9 +165,18 @@ func startBridge(restClient *roborock.Client) {
 	// Start local MQTT
 	mqtt.Start(cfg.MQTT, "roborock_mqtt")
 
+	// Initialize maintenance checker
+	maintenanceChecker = roborock.NewMaintenanceChecker(dataDir)
+
 	// Create device manager for all devices
 	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices(), restClient)
-	deviceManager.SetStatusCallback(publishDeviceStatus)
+	deviceManager.SetStatusCallback(func(slug string, status *roborock.PublishedStatus) {
+		publishDeviceStatus(slug, status)
+		// Check maintenance thresholds
+		if dev := deviceManager.GetDevice(slug); dev != nil {
+			maintenanceChecker.Check(dev.Info.Name, &status.ConsumablePercents, &status.Consumables)
+		}
+	})
 	deviceManager.SetMapCallback(publishDeviceMap)
 
 	// Load cached maps from disk (available before first poll)

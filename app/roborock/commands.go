@@ -226,6 +226,24 @@ func BuildSetWaterBoxPayload(level string) ([]byte, int, error) {
 	return buildIPCPayload("set_water_box_custom_mode", []int{value})
 }
 
+// ConsumableFieldNames maps short names to the IPC field names for reset.
+var ConsumableFieldNames = map[string]string{
+	"main_brush":      "main_brush_work_time",
+	"side_brush":      "side_brush_work_time",
+	"filter":          "filter_work_time",
+	"sensor":          "sensor_dirty_time",
+	"dust_collection": "dust_collection_work_times",
+}
+
+// BuildResetConsumablePayload creates the payload for reset_consumable.
+func BuildResetConsumablePayload(name string) ([]byte, int, error) {
+	fieldName, ok := ConsumableFieldNames[name]
+	if !ok {
+		return nil, 0, fmt.Errorf("unknown consumable: %s", name)
+	}
+	return buildIPCPayload("reset_consumable", []string{fieldName})
+}
+
 // BuildGetStatusPayload creates the payload for GET_PROP.
 func BuildGetStatusPayload() ([]byte, int, error) {
 	return buildIPCPayload("get_prop", []string{"get_status"})

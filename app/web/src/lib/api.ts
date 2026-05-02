@@ -128,6 +128,14 @@ export async function deleteSchedule(slug: string): Promise<any> {
   return response.json();
 }
 
+export async function resetConsumable(slug: string, name: string): Promise<any> {
+  const response = await fetch(`${API_BASE}/devices/${slug}/consumables/${name}/reset`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to reset consumable');
+  return response.json();
+}
+
 export async function setNotAtHome(enabled: boolean): Promise<any> {
   const response = await fetch(`${API_BASE}/not-at-home`, {
     method: 'PUT',

@@ -234,6 +234,7 @@ func (dm *DeviceManager) PollAll() {
 			logger.Debug("Failed to poll consumables", "device", md.Slug, "error", err)
 		} else {
 			published.Consumables = *consumables
+			published.ConsumablePercents = ComputeConsumablePercents(consumables)
 		}
 
 		md.SetStatus(published)

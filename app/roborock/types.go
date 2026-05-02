@@ -140,10 +140,11 @@ type DeviceStatus struct {
 
 // ConsumableStatus represents consumable wear levels.
 type ConsumableStatus struct {
-	MainBrushWorkTime  int `json:"main_brush_work_time"`
-	SideBrushWorkTime  int `json:"side_brush_work_time"`
-	FilterWorkTime     int `json:"filter_work_time"`
-	SensorDirtyTime    int `json:"sensor_dirty_time"`
+	MainBrushWorkTime       int `json:"main_brush_work_time"`
+	SideBrushWorkTime       int `json:"side_brush_work_time"`
+	FilterWorkTime          int `json:"filter_work_time"`
+	SensorDirtyTime         int `json:"sensor_dirty_time"`
+	DustCollectionWorkTimes int `json:"dust_collection_work_times"`
 }
 
 // MQTTMessage represents the structure of messages sent/received via the Roborock MQTT protocol.
@@ -166,17 +167,27 @@ type IPCResponse struct {
 	Result interface{} `json:"result"`
 }
 
+// ConsumablePercents represents remaining percentage for each consumable.
+type ConsumablePercents struct {
+	MainBrush      int `json:"main_brush"`
+	SideBrush      int `json:"side_brush"`
+	Filter         int `json:"filter"`
+	Sensor         int `json:"sensor"`
+	DustCollection int `json:"dust_collection"`
+}
+
 // PublishedStatus is the status published to the local MQTT broker.
 type PublishedStatus struct {
-	State        string           `json:"state"`
-	Battery      int              `json:"battery"`
-	FanSpeed     string           `json:"fan_speed"`
-	MopMode      string           `json:"mop_mode"`
-	WaterBox     string           `json:"water_box"`
-	CleanTime    int              `json:"clean_time"`
-	CleanArea    int              `json:"clean_area"`
-	ErrorCode    int              `json:"error_code"`
-	Error        string           `json:"error"`
-	InCleaning   bool             `json:"in_cleaning"`
-	Consumables  ConsumableStatus `json:"consumables"`
+	State              string             `json:"state"`
+	Battery            int                `json:"battery"`
+	FanSpeed           string             `json:"fan_speed"`
+	MopMode            string             `json:"mop_mode"`
+	WaterBox           string             `json:"water_box"`
+	CleanTime          int                `json:"clean_time"`
+	CleanArea          int                `json:"clean_area"`
+	ErrorCode          int                `json:"error_code"`
+	Error              string             `json:"error"`
+	InCleaning         bool               `json:"in_cleaning"`
+	Consumables        ConsumableStatus   `json:"consumables"`
+	ConsumablePercents ConsumablePercents `json:"consumable_percents"`
 }

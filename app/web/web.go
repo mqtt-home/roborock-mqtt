@@ -111,6 +111,7 @@ func (ws *WebServer) setupRoutes() {
 			r.Get("/schedule", ws.deviceSchedule)
 			r.Post("/schedule", ws.deviceScheduleSave)
 			r.Delete("/schedule", ws.deviceScheduleDelete)
+			r.Post("/consumables/{name}/reset", ws.resetConsumable)
 		})
 
 		r.Get("/schedule/status", ws.scheduleStatus)
@@ -386,6 +387,49 @@ func (ws *WebServer) healthCheck(w http.ResponseWriter, _ *http.Request) {
 		"goroutines":    runtime.NumGoroutine(),
 		"authenticated": ws.restClient.IsAuthenticated(),
 		"timestamp":     time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (ws *WebServer) resetConsumable(w http.ResponseWriter, r *http.Request) {
+	dev := ws.getDeviceFromRequest(w, r)
+	if dev == nil || dev.CloudMQTT == nil {
+		return
+	}
+	name := chi.URLParam(r, "name")
+	if _, ok := roborock.ConsumableFieldNames[name]; !ok {
+		http.Error(w, `{"error":"unknown consumable"}`, http.StatusBadRequest)
+		return
+	}
+	if err := dev.CloudMQTT.ResetConsumable(name); err != nil {
+		logger.Error("Failed to reset consumable", "device", dev.Slug, "consumable", name, "error", err)
+		http.Error(w, `{"error":"reset failed"}`, http.StatusInternalServerError)
+		return
+	}
+	logger.Info("Consumable reset", "device", dev.Slug, "consumable", name)
+
+	// Re-poll consumables to get updated values
+	consumables, err := dev.CloudMQTT.PollConsumables()
+	if err != nil {
+		logger.Debug("Failed to re-poll consumables after reset", "error", err)
+		ws.jsonOK(w)
+		return
+	}
+	percents := roborock.ComputeConsumablePercents(consumables)
+
+	// Update the device's stored status and broadcast via SSE
+	if current := dev.GetStatus(); current != nil {
+		updated := *current
+		updated.Consumables = *consumables
+		updated.ConsumablePercents = percents
+		dev.SetStatus(&updated)
+		ws.BroadcastDeviceStatus(dev.Slug, &updated)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":             "success",
+		"consumables":        consumables,
+		"consumable_percents": percents,
 	})
 }
 

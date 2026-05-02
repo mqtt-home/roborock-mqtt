@@ -3,6 +3,15 @@ export interface ConsumableStatus {
   side_brush_work_time: number;
   filter_work_time: number;
   sensor_dirty_time: number;
+  dust_collection_work_times: number;
+}
+
+export interface ConsumablePercents {
+  main_brush: number;
+  side_brush: number;
+  filter: number;
+  sensor: number;
+  dust_collection: number;
 }
 
 export interface VacuumStatus {
@@ -17,6 +26,7 @@ export interface VacuumStatus {
   error: string;
   in_cleaning: boolean;
   consumables: ConsumableStatus;
+  consumable_percents: ConsumablePercents;
 }
 
 export interface DeviceSummary {

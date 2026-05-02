@@ -11,10 +11,11 @@ import (
 var cfg Config
 
 type Config struct {
-	MQTT      config.MQTTConfig `json:"mqtt"`
-	Roborock  RoborockConfig    `json:"roborock"`
-	Web       WebConfig         `json:"web"`
-	LogLevel  string            `json:"loglevel,omitempty"`
+	MQTT          config.MQTTConfig  `json:"mqtt"`
+	Roborock      RoborockConfig     `json:"roborock"`
+	Web           WebConfig          `json:"web"`
+	Notifications NotificationConfig `json:"notifications,omitempty"`
+	LogLevel      string             `json:"loglevel,omitempty"`
 }
 
 type TimeSlot struct {
@@ -33,6 +34,35 @@ type DeviceSchedule struct {
 type ScheduleSignals struct {
 	PublicHoliday string `json:"public_holiday,omitempty"`
 	Vacation      string `json:"vacation,omitempty"`
+}
+
+type ConsumableLifetimes struct {
+	MainBrush      int `json:"main_brush,omitempty"`
+	SideBrush      int `json:"side_brush,omitempty"`
+	Filter         int `json:"filter,omitempty"`
+	Sensor         int `json:"sensor,omitempty"`
+	DustCollection int `json:"dust_collection,omitempty"`
+}
+
+type EmailConfig struct {
+	Enabled  bool   `json:"enabled"`
+	SMTPHost string `json:"smtp_host,omitempty"`
+	SMTPPort int    `json:"smtp_port,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	From     string `json:"from,omitempty"`
+	To       string `json:"to,omitempty"`
+}
+
+type ThresholdConfig struct {
+	WarnPercent     int `json:"warn_percent,omitempty"`
+	CriticalPercent int `json:"critical_percent,omitempty"`
+}
+
+type NotificationConfig struct {
+	Email               EmailConfig        `json:"email,omitempty"`
+	Thresholds          ThresholdConfig     `json:"thresholds,omitempty"`
+	ConsumableLifetimes ConsumableLifetimes `json:"consumable_lifetimes,omitempty"`
 }
 
 type RoborockConfig struct {
@@ -86,6 +116,32 @@ func LoadConfig(file string) (Config, error) {
 	}
 	if cfg.Roborock.ScheduleSignals.Vacation == "" {
 		cfg.Roborock.ScheduleSignals.Vacation = "rules/free-day"
+	}
+
+	// Notification defaults
+	if cfg.Notifications.Thresholds.WarnPercent == 0 {
+		cfg.Notifications.Thresholds.WarnPercent = 20
+	}
+	if cfg.Notifications.Thresholds.CriticalPercent == 0 {
+		cfg.Notifications.Thresholds.CriticalPercent = 10
+	}
+	if cfg.Notifications.ConsumableLifetimes.MainBrush == 0 {
+		cfg.Notifications.ConsumableLifetimes.MainBrush = 1080000
+	}
+	if cfg.Notifications.ConsumableLifetimes.SideBrush == 0 {
+		cfg.Notifications.ConsumableLifetimes.SideBrush = 720000
+	}
+	if cfg.Notifications.ConsumableLifetimes.Filter == 0 {
+		cfg.Notifications.ConsumableLifetimes.Filter = 540000
+	}
+	if cfg.Notifications.ConsumableLifetimes.Sensor == 0 {
+		cfg.Notifications.ConsumableLifetimes.Sensor = 108000
+	}
+	if cfg.Notifications.ConsumableLifetimes.DustCollection == 0 {
+		cfg.Notifications.ConsumableLifetimes.DustCollection = 20 // cycle count, not seconds
+	}
+	if cfg.Notifications.Email.SMTPPort == 0 {
+		cfg.Notifications.Email.SMTPPort = 587
 	}
 
 	return cfg, nil

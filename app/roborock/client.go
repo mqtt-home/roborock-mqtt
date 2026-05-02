@@ -145,6 +145,10 @@ func (c *Client) headerClientID() string {
 
 // RequestCode sends a verification code to the user's email.
 func (c *Client) RequestCode() error {
+	if c.username == "" {
+		return fmt.Errorf("username is not configured - check your config file")
+	}
+
 	params := url.Values{}
 	params.Set("username", c.username)
 	params.Set("type", "auth")
