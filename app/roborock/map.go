@@ -159,16 +159,26 @@ func parseBlock(md *MapData, blockType int, header []byte, data []byte) {
 				md.Rooms[int(b)] = true
 			}
 		}
+	case BlockGoToPath, BlockPredictedPath:
+		parsPathBlock(md, header, data)
+	case BlockGoToTarget:
+		if len(header) >= 16 {
+			db.Points = []MapPoint{{
+				X: int(binary.LittleEndian.Uint32(header[8:12])),
+				Y: int(binary.LittleEndian.Uint32(header[12:16])),
+			}}
+		}
+	case BlockCleanedZones, BlockNoGoZones, BlockVirtualWalls, BlockNoMopZones:
+		// Zone/wall blocks: data contains int32 coordinate pairs
+		db.Points = tryParseCoordinates(header, data)
+	case 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 28, 30, 31, 32:
+		// Known block types we don't fully parse yet — extract coordinates if possible
+		db.Points = tryParseCoordinates(header, data)
 	case 1024:
 		// Digest block — ignore
 	default:
-		// Try to parse unknown block data as coordinate pairs
 		db.Points = tryParseCoordinates(header, data)
-		if len(db.Points) > 0 {
-			logger.Debug("Parsed coordinates from unknown block", "type", blockType, "points", len(db.Points))
-		} else {
-			logger.Debug("Unknown map block type", "type", blockType)
-		}
+		logger.Debug("Truly unknown map block type", "type", blockType)
 	}
 
 	md.DebugBlocks = append(md.DebugBlocks, db)

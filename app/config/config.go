@@ -66,13 +66,14 @@ type NotificationConfig struct {
 }
 
 type RoborockConfig struct {
-	Username        string                        `json:"username"`
-	Password        string                        `json:"password"`
-	ClientID        string                        `json:"client_id"`
-	BaseURL         string                        `json:"base_url"`
-	PollingInterval int                            `json:"polling_interval"`
-	Schedules       map[string]DeviceSchedule      `json:"schedules,omitempty"`
-	ScheduleSignals ScheduleSignals                `json:"schedule_signals,omitempty"`
+	Username        string                                `json:"username"`
+	Password        string                                `json:"password"`
+	ClientID        string                                `json:"client_id"`
+	BaseURL         string                                `json:"base_url"`
+	PollingInterval int                                    `json:"polling_interval"`
+	Schedules       map[string]DeviceSchedule              `json:"schedules,omitempty"`
+	ScheduleSignals ScheduleSignals                        `json:"schedule_signals,omitempty"`
+	RoomNames       map[string]map[string]string            `json:"room_names,omitempty"`
 }
 
 type WebConfig struct {

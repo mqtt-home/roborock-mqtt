@@ -242,9 +242,9 @@ func (dm *DeviceManager) PollAll() {
 			dm.onStatus(md.Slug, published)
 		}
 
-		// Map polling: every cycle during cleaning, every 5th cycle when idle
+		// Map polling: first cycle, every cycle during cleaning, every 5th cycle when idle
+		shouldPollMap := published.InCleaning || md.pollCount == 0 || md.pollCount%5 == 0
 		md.pollCount++
-		shouldPollMap := published.InCleaning || md.pollCount%5 == 0
 		if shouldPollMap {
 			mapPNG, mapData, err := md.CloudMQTT.PollMap()
 			if err != nil {

@@ -24,14 +24,16 @@ type VectorMap struct {
 	Path        [][2]int           `json:"path"`
 	Charger     *VectorPosition    `json:"charger,omitempty"`
 	Robot       *VectorPosition    `json:"robot,omitempty"`
+	RoomNames   map[string]string  `json:"room_names,omitempty"`
 	DebugBlocks []VectorDebugBlock `json:"debug_blocks,omitempty"`
 }
 
 // VectorRoom groups run-length encoded spans for a single room.
 type VectorRoom struct {
-	ID    int          `json:"id"`
-	Color string       `json:"color"`
-	Spans []VectorSpan `json:"spans"`
+	ID     int          `json:"id"`
+	Color  string       `json:"color"`
+	Center [2]int       `json:"center"`
+	Spans  []VectorSpan `json:"spans"`
 }
 
 // VectorSpan is a horizontal run of pixels: row Y, from X to X+W.
@@ -115,12 +117,24 @@ func MapToVectorJSON(md *MapData) ([]byte, error) {
 		}
 	}
 
-	// Convert room spans map to sorted list
+	// Convert room spans map to sorted list with centroids
 	for id, spans := range roomSpans {
+		var sumX, sumY, totalW int
+		for _, s := range spans {
+			sumX += (s.X + s.X + s.W) * s.W / 2 // weighted midpoint
+			sumY += s.Y * s.W
+			totalW += s.W
+		}
+		cx, cy := 0, 0
+		if totalW > 0 {
+			cx = sumX / totalW
+			cy = sumY / totalW
+		}
 		vm.Rooms = append(vm.Rooms, VectorRoom{
-			ID:    id,
-			Color: hexColors[id%len(hexColors)],
-			Spans: spans,
+			ID:     id,
+			Color:  hexColors[id%len(hexColors)],
+			Center: [2]int{cx, cy},
+			Spans:  spans,
 		})
 	}
 

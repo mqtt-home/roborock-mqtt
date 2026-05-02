@@ -76,12 +76,18 @@ type HomeDataResponse struct {
 	Result  HomeData `json:"result"`
 }
 
+type RoomInfo struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 type HomeData struct {
-	ID              int          `json:"id"`
-	Name            string       `json:"name"`
-	Devices         []DeviceInfo `json:"devices"`
-	ReceivedDevices []DeviceInfo `json:"receivedDevices"`
+	ID              int           `json:"id"`
+	Name            string        `json:"name"`
+	Devices         []DeviceInfo  `json:"devices"`
+	ReceivedDevices []DeviceInfo  `json:"receivedDevices"`
 	Products        []ProductInfo `json:"products"`
+	Rooms           []RoomInfo    `json:"rooms"`
 }
 
 type DeviceInfo struct {
