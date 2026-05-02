@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Battery, Sun, Moon, Wifi, WifiOff, Play, Pause, Home, Wind, Droplets, AlertCircle, Clock, MapPin, LogOut } from 'lucide-react';
+import { Battery, Sun, Moon, Wifi, WifiOff, Play, Pause, Home, Wind, Droplets, AlertCircle, Clock, MapPin, LogOut, ChevronRight } from 'lucide-react';
 import { useSSE } from '@/hooks/useSSE';
-import { startCleaning, pauseCleaning, dockVacuum, setFanSpeed, setMopMode, getAuthStatus, logout, fetchDevices, fetchScenes, executeScene } from '@/lib/api';
+import { pauseCleaning, dockVacuum, getAuthStatus, logout, fetchDevices, fetchScenes, executeScene, setNotAtHome } from '@/lib/api';
 import type { SceneInfo } from '@/lib/api';
 import { useTheme } from '@/contexts/ThemeContext';
-import { fanSpeeds, mopModes, formatCleanTime, formatCleanArea, formatDisplayName } from '@/types/status';
+import { formatCleanTime, formatCleanArea, formatDisplayName } from '@/types/status';
 import type { DeviceSummary } from '@/types/status';
 import { LoginPage } from '@/components/LoginPage';
 import { DeviceSwitcher } from '@/components/DeviceSwitcher';
 import { CleaningProgress } from '@/components/CleaningProgress';
 import { VectorMap } from '@/components/VectorMap';
+import { ScheduleSection } from '@/components/ScheduleSection';
+import { ConfirmModal } from '@/components/ConfirmModal';
+import { ControlsPage } from '@/components/ControlsPage';
 
 const activeCleaningStates = new Set([
   'cleaning', 'spot_cleaning', 'segment_cleaning', 'zoned_cleaning',
@@ -21,11 +24,15 @@ export function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string>('');
-  const { statuses, isConnected, error, reconnect } = useSSE();
+  const { statuses, scheduleStates, isConnected, error, reconnect } = useSSE();
   const { theme, toggleTheme } = useTheme();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [scenes, setScenes] = useState<SceneInfo[]>([]);
   const [activeSceneId, setActiveSceneId] = useState<number | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [pendingScene, setPendingScene] = useState<SceneInfo | null>(null);
+  const [globalNotAtHome, setGlobalNotAtHome] = useState(false);
+  const [showControlsPage, setShowControlsPage] = useState(false);
 
   useEffect(() => {
     getAuthStatus()
@@ -49,7 +56,16 @@ export function App() {
   }, [authenticated, selectedSlug]);
 
   const status = selectedSlug ? statuses[selectedSlug] : undefined;
+  const isEmptyStatus = status ? !status.state : false;
   const isCleaning = status ? activeCleaningStates.has(status.state) : false;
+
+  // Track global not-at-home from any SSE schedule state
+  useEffect(() => {
+    const states = Object.values(scheduleStates);
+    if (states.length > 0) {
+      setGlobalNotAtHome(states[0].not_at_home);
+    }
+  }, [scheduleStates]);
 
   // Clear active scene when device stops cleaning
   useEffect(() => {
@@ -69,6 +85,7 @@ export function App() {
 
   const handleLogout = async () => {
     await logout();
+    setShowLogoutModal(false);
     setAuthenticated(false);
   };
 
@@ -89,6 +106,21 @@ export function App() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Roborock</h1>
           <div className="flex items-center gap-1">
+            <button
+              onClick={async () => {
+                const newVal = !globalNotAtHome;
+                setGlobalNotAtHome(newVal);
+                try { await setNotAtHome(newVal); } catch { setGlobalNotAtHome(!newVal); }
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-accent transition-colors"
+              aria-label="Toggle not at home"
+              title={globalNotAtHome ? 'Away from home (click to set at home)' : 'At home (click to set away)'}
+            >
+              <Home className={`h-4 w-4 ${globalNotAtHome ? 'text-gray-500' : 'text-foreground'}`} />
+              <div className={`relative w-8 h-[18px] rounded-full transition-colors ${globalNotAtHome ? 'bg-gray-500' : 'bg-green-500'}`}>
+                <div className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white transition-transform ${globalNotAtHome ? 'left-[16px]' : 'left-[2px]'}`} />
+              </div>
+            </button>
             <div className="p-2" title={isConnected ? 'Connected' : 'Disconnected'}>
               {isConnected ? (
                 <Wifi className="h-5 w-5 text-green-500" />
@@ -99,7 +131,7 @@ export function App() {
             <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-accent transition-colors" aria-label="Toggle theme">
               {theme === 'dark' ? <Sun className="h-5 w-5 text-foreground" /> : <Moon className="h-5 w-5 text-foreground" />}
             </button>
-            <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-accent transition-colors" aria-label="Logout" title="Logout">
+            <button onClick={() => setShowLogoutModal(true)} className="p-2 rounded-lg hover:bg-accent transition-colors" aria-label="Logout" title="Logout">
               <LogOut className="h-5 w-5 text-foreground" />
             </button>
           </div>
@@ -117,7 +149,11 @@ export function App() {
         <DeviceSwitcher devices={devices} selected={selectedSlug} onSelect={setSelectedSlug} />
 
         {/* Cleaning progress or status card */}
-        {status && activeCleaningStates.has(status.state) ? (
+        {status && isEmptyStatus ? (
+          <div className="mb-6 p-4 bg-card rounded-lg border border-border">
+            <p className="text-sm text-muted-foreground">Waiting for status...</p>
+          </div>
+        ) : status && activeCleaningStates.has(status.state) ? (
           <CleaningProgress status={status} />
         ) : status && (
           <div className="mb-6 p-4 bg-card rounded-lg border border-border">
@@ -160,77 +196,78 @@ export function App() {
           </div>
         )}
 
-        {/* Controls */}
-        {selectedSlug && (
-          <>
-            <div className="mb-6">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Controls</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <button onClick={() => handleAction('start', () => startCleaning(selectedSlug))} disabled={actionLoading === 'start'} className="p-4 rounded-lg border border-border bg-card hover:bg-accent transition-colors touch-target flex flex-col items-center gap-2">
-                  <Play className="h-6 w-6 text-green-500" /><span className="text-xs text-muted-foreground">Start</span>
-                </button>
-                <button onClick={() => handleAction('pause', () => pauseCleaning(selectedSlug))} disabled={actionLoading === 'pause'} className="p-4 rounded-lg border border-border bg-card hover:bg-accent transition-colors touch-target flex flex-col items-center gap-2">
-                  <Pause className="h-6 w-6 text-amber-500" /><span className="text-xs text-muted-foreground">Pause</span>
-                </button>
-                <button onClick={() => handleAction('dock', () => dockVacuum(selectedSlug))} disabled={actionLoading === 'dock'} className="p-4 rounded-lg border border-border bg-card hover:bg-accent transition-colors touch-target flex flex-col items-center gap-2">
-                  <Home className="h-6 w-6 text-primary" /><span className="text-xs text-muted-foreground">Dock</span>
-                </button>
-              </div>
-            </div>
+        {/* Inline Pause/Dock during cleaning */}
+        {selectedSlug && isCleaning && (
+          <div className="mb-6 grid grid-cols-2 gap-3">
+            <button onClick={() => handleAction('pause', () => pauseCleaning(selectedSlug))} disabled={actionLoading === 'pause'} className="p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors touch-target flex items-center justify-center gap-2">
+              <Pause className="h-5 w-5 text-amber-500" /><span className="text-sm text-muted-foreground">Pause</span>
+            </button>
+            <button onClick={() => handleAction('dock', () => dockVacuum(selectedSlug))} disabled={actionLoading === 'dock'} className="p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors touch-target flex items-center justify-center gap-2">
+              <Home className="h-5 w-5 text-primary" /><span className="text-sm text-muted-foreground">Dock</span>
+            </button>
+          </div>
+        )}
 
-            <div className="mb-6">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Fan Speed</h2>
-              <div className="grid grid-cols-4 gap-2">
-                {fanSpeeds.map((speed) => (
-                  <button key={speed} onClick={() => handleAction(`fan-${speed}`, () => setFanSpeed(selectedSlug, speed))} disabled={actionLoading?.startsWith('fan-') ?? false}
-                    className={`p-3 rounded-lg border-2 transition-all text-sm touch-target ${status?.fan_speed === speed ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border bg-card text-muted-foreground hover:border-primary/50'}`}>
-                    {formatDisplayName(speed)}
-                  </button>
-                ))}
-              </div>
+        {/* Programs */}
+        {selectedSlug && scenes.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Programs</h2>
+            <div className="space-y-2">
+              {scenes.map((scene) => (
+                <button
+                  key={scene.id}
+                  onClick={() => setPendingScene(scene)}
+                  disabled={actionLoading?.startsWith('scene-') ?? false}
+                  className={`w-full p-3 rounded-lg border-2 transition-all touch-target flex items-center justify-between ${
+                    activeSceneId === scene.id && isCleaning
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border bg-card hover:bg-accent'
+                  }`}
+                >
+                  <span className={`text-sm ${activeSceneId === scene.id && isCleaning ? 'text-primary font-medium' : 'text-foreground'}`}>{scene.name}</span>
+                  {activeSceneId === scene.id && isCleaning
+                    ? <span className="text-xs uppercase tracking-wide bg-primary text-primary-foreground px-2 py-0.5 rounded">Active</span>
+                    : <Play className="h-4 w-4 text-green-500" />
+                  }
+                </button>
+              ))}
             </div>
+          </div>
+        )}
 
-            <div className="mb-6">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Mop Mode</h2>
-              <div className="grid grid-cols-3 gap-2">
-                {mopModes.map((mode) => (
-                  <button key={mode} onClick={() => handleAction(`mop-${mode}`, () => setMopMode(selectedSlug, mode))} disabled={actionLoading?.startsWith('mop-') ?? false}
-                    className={`p-3 rounded-lg border-2 transition-all text-sm touch-target ${status?.mop_mode === mode ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border bg-card text-muted-foreground hover:border-primary/50'}`}>
-                    {formatDisplayName(mode)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {scenes.length > 0 && (
-              <div className="mb-6">
-                <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Programs</h2>
-                <div className="space-y-2">
-                  {scenes.map((scene) => (
-                    <button
-                      key={scene.id}
-                      onClick={() => {
-                        setActiveSceneId(scene.id);
-                        handleAction(`scene-${scene.id}`, () => executeScene(selectedSlug, scene.id));
-                      }}
-                      disabled={actionLoading?.startsWith('scene-') ?? false}
-                      className={`w-full p-3 rounded-lg border-2 transition-all touch-target flex items-center justify-between ${
-                        activeSceneId === scene.id && isCleaning
-                          ? 'border-primary bg-primary/10'
-                          : 'border-border bg-card hover:bg-accent'
-                      }`}
-                    >
-                      <span className={`text-sm ${activeSceneId === scene.id && isCleaning ? 'text-primary font-medium' : 'text-foreground'}`}>{scene.name}</span>
-                      {activeSceneId === scene.id && isCleaning
-                        ? <span className="text-xs uppercase tracking-wide bg-primary text-primary-foreground px-2 py-0.5 rounded">Active</span>
-                        : <Play className="h-4 w-4 text-green-500" />
-                      }
-                    </button>
-                  ))}
+        {/* Controls summary card */}
+        {selectedSlug && status && !isEmptyStatus && (
+          <div className="mb-6">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Controls</h2>
+            <button
+              onClick={() => setShowControlsPage(true)}
+              className="w-full p-4 bg-card rounded-lg border border-border hover:bg-accent transition-colors text-left"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    <Wind className="h-4 w-4" />
+                    <span>{formatDisplayName(status.fan_speed)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Droplets className="h-4 w-4" />
+                    <span>{formatDisplayName(status.mop_mode)}</span>
+                  </div>
                 </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
               </div>
-            )}
-          </>
+            </button>
+          </div>
+        )}
+
+        {/* Schedule */}
+        {selectedSlug && (
+          <ScheduleSection
+            slug={selectedSlug}
+            deviceName={devices.find(d => d.slug === selectedSlug)?.name ?? selectedSlug}
+            scenes={scenes}
+            sseScheduleState={scheduleStates[selectedSlug]}
+          />
         )}
 
         {/* Map */}
@@ -238,6 +275,41 @@ export function App() {
 
         <div className="mt-8 text-center text-xs text-muted-foreground">roborock-mqtt</div>
       </div>
+
+      {showControlsPage && selectedSlug && (
+        <ControlsPage
+          slug={selectedSlug}
+          status={status}
+          actionLoading={actionLoading}
+          onAction={handleAction}
+          onClose={() => setShowControlsPage(false)}
+        />
+      )}
+
+      <ConfirmModal
+        open={showLogoutModal}
+        title="Log out"
+        message="You are about to log out from Roborock. You will need to re-authenticate with a verification code sent to your email."
+        confirmLabel="Log out"
+        confirmVariant="destructive"
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutModal(false)}
+      />
+
+      <ConfirmModal
+        open={pendingScene !== null}
+        title={`Start "${pendingScene?.name}"?`}
+        message="This will start the cleaning program on the device."
+        confirmLabel="Start"
+        onConfirm={() => {
+          if (pendingScene) {
+            setActiveSceneId(pendingScene.id);
+            handleAction(`scene-${pendingScene.id}`, () => executeScene(selectedSlug, pendingScene.id));
+          }
+          setPendingScene(null);
+        }}
+        onCancel={() => setPendingScene(null)}
+      />
     </div>
   );
 }

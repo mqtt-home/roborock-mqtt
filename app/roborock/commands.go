@@ -106,6 +106,9 @@ func nextRequestID() int {
 
 // FanSpeedName returns the human-readable name for a fan speed value.
 func FanSpeedName(speed int) string {
+	if speed == 0 {
+		return ""
+	}
 	if name, ok := fanSpeedNames[speed]; ok {
 		return name
 	}
@@ -114,6 +117,9 @@ func FanSpeedName(speed int) string {
 
 // MopModeName returns the human-readable name for a mop mode value.
 func MopModeName(mode int) string {
+	if mode == 0 {
+		return ""
+	}
 	if name, ok := mopModeNames[mode]; ok {
 		return name
 	}
@@ -122,6 +128,9 @@ func MopModeName(mode int) string {
 
 // WaterBoxName returns the human-readable name for a water box level.
 func WaterBoxName(level int) string {
+	if level == 0 {
+		return ""
+	}
 	if name, ok := waterBoxNames[level]; ok {
 		return name
 	}
@@ -130,6 +139,9 @@ func WaterBoxName(level int) string {
 
 // StateName returns the human-readable name for a device state.
 func StateName(state int) string {
+	if state == 0 {
+		return ""
+	}
 	if name, ok := stateNames[state]; ok {
 		return name
 	}

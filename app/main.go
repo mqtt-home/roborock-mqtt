@@ -20,8 +20,13 @@ import (
 )
 
 var (
-	deviceManager *roborock.DeviceManager
-	stopPolling   chan struct{}
+	deviceManager   *roborock.DeviceManager
+	scheduleEngine  *roborock.ScheduleEngine
+	notAtHomeStore  *roborock.NotAtHomeStore
+	scheduleStore   *roborock.ScheduleStore
+	stopPolling     chan struct{}
+	stopSchedule    chan struct{}
+	dataDir         string
 )
 
 func publishDeviceMap(slug string, pngData []byte) {
@@ -43,6 +48,20 @@ func publishDeviceScenes(slug string, scenes []roborock.Scene) {
 
 	mqtt.PublishAbsolute(topic, string(data), cfg.MQTT.Retain)
 	logger.Debug("Published scenes", "device", slug, "topic", topic, "count", len(scenes))
+}
+
+func publishDeviceSchedule(slug string, state *roborock.ScheduleState) {
+	cfg := config.Get()
+	topic := cfg.MQTT.Topic + "/" + slug + "/schedule"
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		logger.Error("Failed to marshal schedule state", "error", err)
+		return
+	}
+
+	mqtt.PublishAbsolute(topic, string(data), cfg.MQTT.Retain)
+	logger.Debug("Published schedule state", "device", slug, "topic", topic, "dayType", state.ActiveDay)
 }
 
 func publishDeviceStatus(slug string, status *roborock.PublishedStatus) {
@@ -178,6 +197,31 @@ func startBridge(restClient *roborock.Client) {
 	stopPolling = make(chan struct{})
 	go deviceManager.StartPolling(time.Duration(cfg.Roborock.PollingInterval)*time.Second, stopPolling)
 
+	// Initialize schedule engine (provisioned from config + user from data dir)
+	notAtHomeStore = roborock.NewNotAtHomeStore(dataDir)
+	scheduleStore = roborock.NewScheduleStore(dataDir)
+
+	signals := roborock.NewSignalListener(
+		cfg.Roborock.ScheduleSignals.PublicHoliday,
+		cfg.Roborock.ScheduleSignals.Vacation,
+	)
+	signals.Subscribe()
+
+	scheduleEngine = roborock.NewScheduleEngine(cfg.Roborock.Schedules, scheduleStore, deviceManager, signals, notAtHomeStore)
+
+	scheduleCallback := func(slug string, state *roborock.ScheduleState) {
+		publishDeviceSchedule(slug, state)
+	}
+	scheduleEngine.SetStateChangeCallback(scheduleCallback)
+	scheduleEngine.SetActionCallback(scheduleCallback)
+
+	signals.SetOnChange(func() {
+		scheduleEngine.CheckDayTypeChanges()
+	})
+
+	stopSchedule = make(chan struct{})
+	go scheduleEngine.StartTicker(stopSchedule)
+
 	logger.Info("Bridge started", "devices", len(restClient.GetDevices()))
 }
 
@@ -202,8 +246,9 @@ func main() {
 
 	logger.SetLevel(cfg.LogLevel)
 
-	// Session directory next to the config file
-	sessionDir := filepath.Join(filepath.Dir(configFile), ".session")
+	// Data and session directories next to the config file
+	dataDir = filepath.Dir(configFile)
+	sessionDir := filepath.Join(dataDir, ".session")
 
 	// Initialize Roborock REST client
 	restClient := roborock.NewClient(cfg.Roborock.BaseURL, cfg.Roborock.Username, cfg.Roborock.Password, cfg.Roborock.ClientID)
@@ -232,7 +277,35 @@ func main() {
 	webServer = web.NewWebServer(deviceManager, restClient, func() {
 		startBridge(restClient)
 		webServer.SetDeviceManager(deviceManager)
+		if scheduleEngine != nil {
+			webServer.SetScheduleEngine(scheduleEngine)
+			webServer.SetNotAtHomeStore(notAtHomeStore)
+			webServer.SetScheduleStore(scheduleStore)
+			scheduleEngine.SetStateChangeCallback(func(slug string, state *roborock.ScheduleState) {
+				publishDeviceSchedule(slug, state)
+				webServer.BroadcastScheduleState(slug, state)
+			})
+			scheduleEngine.SetActionCallback(func(slug string, state *roborock.ScheduleState) {
+				publishDeviceSchedule(slug, state)
+				webServer.BroadcastScheduleState(slug, state)
+			})
+		}
 	})
+
+	// Wire schedule engine to web server if bridge already started
+	if scheduleEngine != nil {
+		webServer.SetScheduleEngine(scheduleEngine)
+		webServer.SetNotAtHomeStore(notAtHomeStore)
+		webServer.SetScheduleStore(scheduleStore)
+		scheduleEngine.SetStateChangeCallback(func(slug string, state *roborock.ScheduleState) {
+			publishDeviceSchedule(slug, state)
+			webServer.BroadcastScheduleState(slug, state)
+		})
+		scheduleEngine.SetActionCallback(func(slug string, state *roborock.ScheduleState) {
+			publishDeviceSchedule(slug, state)
+			webServer.BroadcastScheduleState(slug, state)
+		})
+	}
 
 	go func() {
 		port := cfg.Web.Port
@@ -249,6 +322,9 @@ func main() {
 	signal.Notify(quitChannel, syscall.SIGINT, syscall.SIGTERM)
 	<-quitChannel
 
+	if stopSchedule != nil {
+		close(stopSchedule)
+	}
 	if stopPolling != nil {
 		close(stopPolling)
 	}

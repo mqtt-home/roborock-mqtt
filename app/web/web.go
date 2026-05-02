@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/mqtt-home/roborock-mqtt/config"
 	"github.com/mqtt-home/roborock-mqtt/roborock"
 	"github.com/philipparndt/go-logger"
 	loggerchi "github.com/philipparndt/go-logger/chi"
@@ -24,12 +25,15 @@ type SSEClient struct {
 }
 
 type WebServer struct {
-	deviceManager *roborock.DeviceManager
-	restClient    *roborock.Client
-	onAuth        func()
-	router        *chi.Mux
-	sseClients    map[string]*SSEClient
-	sseClientsMu  sync.RWMutex
+	deviceManager  *roborock.DeviceManager
+	restClient     *roborock.Client
+	scheduleEngine *roborock.ScheduleEngine
+	notAtHomeStore *roborock.NotAtHomeStore
+	scheduleStore  *roborock.ScheduleStore
+	onAuth         func()
+	router         *chi.Mux
+	sseClients     map[string]*SSEClient
+	sseClientsMu   sync.RWMutex
 }
 
 func NewWebServer(
@@ -52,6 +56,21 @@ func NewWebServer(
 // SetDeviceManager updates the device manager after authentication.
 func (ws *WebServer) SetDeviceManager(dm *roborock.DeviceManager) {
 	ws.deviceManager = dm
+}
+
+// SetScheduleEngine sets the schedule engine after bridge startup.
+func (ws *WebServer) SetScheduleEngine(se *roborock.ScheduleEngine) {
+	ws.scheduleEngine = se
+}
+
+// SetNotAtHomeStore sets the not-at-home store.
+func (ws *WebServer) SetNotAtHomeStore(store *roborock.NotAtHomeStore) {
+	ws.notAtHomeStore = store
+}
+
+// SetScheduleStore sets the schedule store for user-created schedules.
+func (ws *WebServer) SetScheduleStore(store *roborock.ScheduleStore) {
+	ws.scheduleStore = store
 }
 
 func (ws *WebServer) setupRoutes() {
@@ -89,8 +108,13 @@ func (ws *WebServer) setupRoutes() {
 			r.Get("/map.json", ws.deviceMapJSON)
 			r.Get("/scenes", ws.deviceScenes)
 			r.Post("/scenes/{id}/execute", ws.executeScene)
+			r.Get("/schedule", ws.deviceSchedule)
+			r.Post("/schedule", ws.deviceScheduleSave)
+			r.Delete("/schedule", ws.deviceScheduleDelete)
 		})
 
+		r.Get("/schedule/status", ws.scheduleStatus)
+		r.Put("/not-at-home", ws.notAtHome)
 		r.Get("/events", ws.handleSSE)
 	})
 
@@ -370,7 +394,165 @@ func (ws *WebServer) jsonOK(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
+// --- Schedule endpoints ---
+
+func (ws *WebServer) deviceSchedule(w http.ResponseWriter, r *http.Request) {
+	dev := ws.getDeviceFromRequest(w, r)
+	if dev == nil {
+		return
+	}
+	if ws.scheduleEngine == nil || !ws.scheduleEngine.HasAnyScheduleForSlug(dev.Slug) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"configured": false, "source": "none"})
+		return
+	}
+	state := ws.scheduleEngine.GetScheduleStateForSlug(dev.Slug)
+	sched := ws.scheduleEngine.GetDeviceScheduleForSlug(dev.Slug)
+	source := "none"
+	if state != nil {
+		source = string(state.Source)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"configured": true,
+		"source":     source,
+		"state":      state,
+		"schedule":   sched,
+	})
+}
+
+func (ws *WebServer) deviceScheduleSave(w http.ResponseWriter, r *http.Request) {
+	dev := ws.getDeviceFromRequest(w, r)
+	if dev == nil {
+		return
+	}
+	if ws.scheduleStore == nil || ws.scheduleEngine == nil {
+		http.Error(w, `{"error":"schedules not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	var sched config.DeviceSchedule
+	if err := json.NewDecoder(r.Body).Decode(&sched); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	if err := ws.scheduleStore.Save(dev.Info.Name, sched); err != nil {
+		logger.Error("Failed to save user schedule", "device", dev.Slug, "error", err)
+		http.Error(w, `{"error":"failed to save schedule"}`, http.StatusInternalServerError)
+		return
+	}
+	ws.scheduleEngine.RebuildSchedules()
+	state := ws.scheduleEngine.GetScheduleStateForSlug(dev.Slug)
+	if state != nil {
+		ws.BroadcastScheduleState(dev.Slug, state)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":   "success",
+		"source":   "user",
+		"state":    state,
+		"schedule": &sched,
+	})
+}
+
+func (ws *WebServer) deviceScheduleDelete(w http.ResponseWriter, r *http.Request) {
+	dev := ws.getDeviceFromRequest(w, r)
+	if dev == nil {
+		return
+	}
+	if ws.scheduleStore == nil || ws.scheduleEngine == nil {
+		http.Error(w, `{"error":"schedules not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if err := ws.scheduleStore.Delete(dev.Info.Name); err != nil {
+		http.Error(w, `{"error":"no user schedule to delete"}`, http.StatusNotFound)
+		return
+	}
+	ws.scheduleEngine.RebuildSchedules()
+	state := ws.scheduleEngine.GetScheduleStateForSlug(dev.Slug)
+	if state != nil {
+		ws.BroadcastScheduleState(dev.Slug, state)
+	}
+	source := "none"
+	if state != nil {
+		source = string(state.Source)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "success",
+		"source": source,
+		"state":  state,
+	})
+}
+
+func (ws *WebServer) scheduleStatus(w http.ResponseWriter, _ *http.Request) {
+	if ws.scheduleEngine == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"devices": []any{}})
+		return
+	}
+	states := ws.scheduleEngine.GetAllScheduleStates()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"devices": states})
+}
+
+type NotAtHomeRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (ws *WebServer) notAtHome(w http.ResponseWriter, r *http.Request) {
+	if ws.notAtHomeStore == nil || ws.scheduleEngine == nil {
+		http.Error(w, `{"error":"schedules not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	var req NotAtHomeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		return
+	}
+	ws.notAtHomeStore.Set(req.Enabled)
+	logger.Info("Not-at-home toggled", "enabled", req.Enabled)
+
+	// Broadcast updated state for all devices with schedules
+	for _, state := range ws.scheduleEngine.GetAllScheduleStates() {
+		ws.BroadcastScheduleState(state.Device, state)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":      "success",
+		"not_at_home": req.Enabled,
+	})
+}
+
 // --- SSE ---
+
+// BroadcastScheduleState sends a schedule state update to all SSE clients.
+func (ws *WebServer) BroadcastScheduleState(slug string, state *roborock.ScheduleState) {
+	payload := struct {
+		Type   string                `json:"type"`
+		Device string                `json:"device"`
+		State  *roborock.ScheduleState `json:"state"`
+	}{
+		Type:   "schedule",
+		Device: slug,
+		State:  state,
+	}
+
+	message, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	messageStr := string(message)
+
+	ws.sseClientsMu.RLock()
+	for _, client := range ws.sseClients {
+		select {
+		case client.Channel <- messageStr:
+		default:
+		}
+	}
+	ws.sseClientsMu.RUnlock()
+}
 
 // BroadcastDeviceStatus sends a per-device status update to all SSE clients.
 func (ws *WebServer) BroadcastDeviceStatus(slug string, status *roborock.PublishedStatus) {
@@ -422,6 +604,19 @@ func (ws *WebServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 				msg, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", string(msg))
 			}
+		}
+	}
+
+	// Send initial schedule state
+	if ws.scheduleEngine != nil {
+		for _, state := range ws.scheduleEngine.GetAllScheduleStates() {
+			payload := struct {
+				Type   string                  `json:"type"`
+				Device string                  `json:"device"`
+				State  *roborock.ScheduleState `json:"state"`
+			}{Type: "schedule", Device: state.Device, State: state}
+			msg, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", string(msg))
 		}
 	}
 

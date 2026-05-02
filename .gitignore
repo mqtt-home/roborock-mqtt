@@ -4,3 +4,5 @@ app/build/
 app/web/dist/
 app/web/node_modules/
 production/config/.session
+app/web/tsconfig.tsbuildinfo
+production/config/schedules

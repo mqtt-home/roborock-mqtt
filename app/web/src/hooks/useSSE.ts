@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { SSEEvent, VacuumStatus } from '@/types/status';
+import type { ScheduleState } from '@/types/schedule';
 import { API_BASE } from '@/lib/api';
 
 interface SSEHookReturn {
   statuses: Record<string, VacuumStatus>;
+  scheduleStates: Record<string, ScheduleState>;
   isConnected: boolean;
   error: string | null;
   reconnect: () => void;
@@ -11,6 +13,7 @@ interface SSEHookReturn {
 
 export function useSSE(): SSEHookReturn {
   const [statuses, setStatuses] = useState<Record<string, VacuumStatus>>({});
+  const [scheduleStates, setScheduleStates] = useState<Record<string, ScheduleState>>({});
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -41,9 +44,13 @@ export function useSSE(): SSEHookReturn {
 
       eventSource.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data) as SSEEvent;
-          const { device, ...status } = data;
-          setStatuses(prev => ({ ...prev, [device]: status as VacuumStatus }));
+          const data = JSON.parse(event.data);
+          if (data.type === 'schedule') {
+            setScheduleStates(prev => ({ ...prev, [data.device]: data.state }));
+          } else {
+            const { device, ...status } = data as SSEEvent;
+            setStatuses(prev => ({ ...prev, [device]: status as VacuumStatus }));
+          }
         } catch {
           setError('Failed to parse server data');
         }
@@ -76,5 +83,5 @@ export function useSSE(): SSEHookReturn {
     connect();
   }, [connect]);
 
-  return { statuses, isConnected, error, reconnect };
+  return { statuses, scheduleStates, isConnected, error, reconnect };
 }

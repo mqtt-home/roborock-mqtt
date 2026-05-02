@@ -17,12 +17,32 @@ type Config struct {
 	LogLevel  string            `json:"loglevel,omitempty"`
 }
 
+type TimeSlot struct {
+	Time    string `json:"time"`
+	Action  string `json:"action"`
+	SceneID int    `json:"scene_id,omitempty"`
+}
+
+type DeviceSchedule struct {
+	Normal    []TimeSlot `json:"normal,omitempty"`
+	Weekend   []TimeSlot `json:"weekend,omitempty"`
+	Free      []TimeSlot `json:"free,omitempty"`
+	NotAtHome []TimeSlot `json:"notAtHome,omitempty"`
+}
+
+type ScheduleSignals struct {
+	PublicHoliday string `json:"public_holiday,omitempty"`
+	Vacation      string `json:"vacation,omitempty"`
+}
+
 type RoborockConfig struct {
-	Username        string `json:"username"`
-	Password        string `json:"password"`
-	ClientID        string `json:"client_id"`
-	BaseURL         string `json:"base_url"`
-	PollingInterval int    `json:"polling_interval"`
+	Username        string                        `json:"username"`
+	Password        string                        `json:"password"`
+	ClientID        string                        `json:"client_id"`
+	BaseURL         string                        `json:"base_url"`
+	PollingInterval int                            `json:"polling_interval"`
+	Schedules       map[string]DeviceSchedule      `json:"schedules,omitempty"`
+	ScheduleSignals ScheduleSignals                `json:"schedule_signals,omitempty"`
 }
 
 type WebConfig struct {
@@ -59,6 +79,13 @@ func LoadConfig(file string) (Config, error) {
 
 	if cfg.Web.Port == 0 {
 		cfg.Web.Port = 8080
+	}
+
+	if cfg.Roborock.ScheduleSignals.PublicHoliday == "" {
+		cfg.Roborock.ScheduleSignals.PublicHoliday = "rules/public-holiday"
+	}
+	if cfg.Roborock.ScheduleSignals.Vacation == "" {
+		cfg.Roborock.ScheduleSignals.Vacation = "rules/free-day"
 	}
 
 	return cfg, nil

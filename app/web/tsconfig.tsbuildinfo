@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/components/cleaningprogress.tsx","./src/components/devicemap.tsx","./src/components/deviceswitcher.tsx","./src/components/loginpage.tsx","./src/components/vectormap.tsx","./src/contexts/themecontext.tsx","./src/hooks/usesse.ts","./src/lib/api.ts","./src/types/status.ts"],"version":"5.9.3"}

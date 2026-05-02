@@ -93,3 +93,47 @@ export async function executeScene(slug: string, sceneId: number): Promise<void>
   });
   if (!response.ok) throw new Error('Failed to execute scene');
 }
+
+// --- Schedule ---
+
+import type { ScheduleResponse, DeviceSchedule } from '@/types/schedule';
+
+export async function fetchSchedule(slug: string): Promise<ScheduleResponse> {
+  const response = await fetch(`${API_BASE}/devices/${slug}/schedule`);
+  if (!response.ok) throw new Error('Failed to fetch schedule');
+  return response.json();
+}
+
+export async function fetchScheduleStatus(): Promise<any> {
+  const response = await fetch(`${API_BASE}/schedule/status`);
+  if (!response.ok) throw new Error('Failed to fetch schedule status');
+  return response.json();
+}
+
+export async function saveSchedule(slug: string, schedule: DeviceSchedule): Promise<any> {
+  const response = await fetch(`${API_BASE}/devices/${slug}/schedule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(schedule),
+  });
+  if (!response.ok) throw new Error('Failed to save schedule');
+  return response.json();
+}
+
+export async function deleteSchedule(slug: string): Promise<any> {
+  const response = await fetch(`${API_BASE}/devices/${slug}/schedule`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete schedule');
+  return response.json();
+}
+
+export async function setNotAtHome(enabled: boolean): Promise<any> {
+  const response = await fetch(`${API_BASE}/not-at-home`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) throw new Error('Failed to update not-at-home');
+  return response.json();
+}

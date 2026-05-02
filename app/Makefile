@@ -32,6 +32,11 @@ build-backend:
 	@echo "Building the backend..."
 	@$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) .
 
+.PHONY: dev
+dev: build-frontend build-backend
+	@echo "Starting the application..."
+	@$(BUILD_DIR)/$(BINARY_NAME) $(CONFIG_DIR)/config.json
+
 .PHONY: dev-frontend
 dev-frontend:
 	@echo "Starting frontend dev server..."
