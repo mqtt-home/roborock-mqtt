@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Calendar, Home, Sun, Palmtree, Clock, ChevronRight, Plus } from 'lucide-react';
 import { fetchSchedule } from '@/lib/api';
 import type { SceneInfo } from '@/lib/api';
 import type { ScheduleState, DayType, ScheduleSource } from '@/types/schedule';
 import { dayTypeLabels } from '@/types/schedule';
-import { SchedulePage } from '@/components/SchedulePage';
 
 interface Props {
   slug: string;
-  deviceName: string;
+  deviceName?: string;
   scenes: SceneInfo[];
   sseScheduleState?: ScheduleState;
 }
@@ -28,11 +28,10 @@ function getNextActionLabel(nextAction: { time: string; action: string; scene_id
   return nextAction.action.charAt(0).toUpperCase() + nextAction.action.slice(1);
 }
 
-export function ScheduleSection({ slug, deviceName, scenes, sseScheduleState }: Props) {
+export function ScheduleSection({ slug, scenes, sseScheduleState }: Props) {
   const [state, setState] = useState<ScheduleState | null>(null);
   const [source, setSource] = useState<ScheduleSource>('none');
   const [loading, setLoading] = useState(true);
-  const [showPage, setShowPage] = useState(false);
 
   useEffect(() => {
     fetchSchedule(slug)
@@ -66,59 +65,47 @@ export function ScheduleSection({ slug, deviceName, scenes, sseScheduleState }: 
   const nextAction = state?.next_action;
 
   return (
-    <>
-      <div className="mb-6">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Schedule</h2>
+    <div className="mb-6">
+      <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Schedule</h2>
 
-        {hasSchedule ? (
-          <button
-            onClick={() => setShowPage(true)}
-            className="w-full p-4 bg-card rounded-lg border border-border hover:bg-accent transition-colors text-left"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${style.bg}`}>
-                  <span className={style.text}>{style.icon}</span>
-                  <span className={`text-xs font-medium ${style.text}`}>{dayTypeLabels[activeDay]}</span>
+      {hasSchedule ? (
+        <Link
+          to={`/devices/${slug}/schedule`}
+          className="block w-full p-4 bg-card rounded-lg border border-border hover:bg-accent transition-colors text-left"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${style.bg}`}>
+                <span className={style.text}>{style.icon}</span>
+                <span className={`text-xs font-medium ${style.text}`}>{dayTypeLabels[activeDay]}</span>
+              </div>
+              {nextAction ? (
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span className="font-mono tabular-nums">{nextAction.time}</span>
+                  <span>{getNextActionLabel(nextAction, scenes)}</span>
                 </div>
-                {nextAction ? (
-                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <Clock className="h-3.5 w-3.5" />
-                    <span className="font-mono tabular-nums">{nextAction.time}</span>
-                    <span>{getNextActionLabel(nextAction, scenes)}</span>
-                  </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground">No more actions today</span>
-                )}
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <span className="text-sm text-muted-foreground">No more actions today</span>
+              )}
             </div>
-          </button>
-        ) : (
-          <button
-            onClick={() => setShowPage(true)}
-            className="w-full p-4 bg-card rounded-lg border border-border hover:bg-accent transition-colors text-left"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Plus className="h-4 w-4" />
-                <span>Create Schedule</span>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+        </Link>
+      ) : (
+        <Link
+          to={`/devices/${slug}/schedule`}
+          className="block w-full p-4 bg-card rounded-lg border border-border hover:bg-accent transition-colors text-left"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Plus className="h-4 w-4" />
+              <span>Create Schedule</span>
             </div>
-          </button>
-        )}
-      </div>
-
-      {showPage && (
-        <SchedulePage
-          slug={slug}
-          deviceName={deviceName}
-          scenes={scenes}
-          sseScheduleState={sseScheduleState}
-          onClose={() => setShowPage(false)}
-        />
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+        </Link>
       )}
-    </>
+    </div>
   );
 }

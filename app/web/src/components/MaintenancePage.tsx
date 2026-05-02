@@ -48,11 +48,6 @@ export function MaintenancePage({ slug, deviceName, percents, consumables, onClo
     setLocalConsumables(null);
   }, [percents, consumables]);
 
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
-
   const handleReset = async (name: string) => {
     setConfirmReset(null);
     setResetting(name);
@@ -70,9 +65,8 @@ export function MaintenancePage({ slug, deviceName, percents, consumables, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
-      <div className="max-w-md mx-auto p-4 md:p-8">
-        <div className="flex items-center gap-3 mb-6">
+    <>
+      <div className="flex items-center gap-3 mb-6">
           <button
             onClick={onClose}
             className="p-2 -ml-2 rounded-lg hover:bg-accent transition-colors"
@@ -118,7 +112,6 @@ export function MaintenancePage({ slug, deviceName, percents, consumables, onClo
             );
           })}
         </div>
-      </div>
 
       <ConfirmModal
         open={confirmReset !== null}
@@ -128,6 +121,6 @@ export function MaintenancePage({ slug, deviceName, percents, consumables, onClo
         onConfirm={() => confirmReset && handleReset(confirmReset)}
         onCancel={() => setConfirmReset(null)}
       />
-    </div>
+    </>
   );
 }

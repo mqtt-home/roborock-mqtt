@@ -119,8 +119,19 @@ func (ws *WebServer) setupRoutes() {
 		r.Get("/events", ws.handleSSE)
 	})
 
-	fileServer := http.FileServer(http.Dir("./web/dist/"))
-	ws.router.Handle("/*", fileServer)
+	// SPA fallback: serve static files, fall back to index.html for client-side routes
+	distDir := "./web/dist/"
+	fileServer := http.FileServer(http.Dir(distDir))
+	ws.router.HandleFunc("/*", func(w http.ResponseWriter, r *http.Request) {
+		// Try to serve the static file
+		path := "." + r.URL.Path
+		if _, err := http.Dir(distDir).Open(path); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Fall back to index.html for client-side routing
+		http.ServeFile(w, r, distDir+"index.html")
+	})
 }
 
 // --- Auth endpoints ---

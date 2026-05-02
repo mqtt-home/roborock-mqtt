@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Calendar, Home, Sun, Palmtree, Clock, Check, Pencil, Trash2, Shield, Plus, X } from 'lucide-react';
 import { fetchSchedule, deleteSchedule, saveSchedule } from '@/lib/api';
+// Note: no longer uses fixed overlay — rendered as a route component
 import type { SceneInfo } from '@/lib/api';
 import type { ScheduleState, DeviceSchedule, TimeSlot, DayType, ScheduleSource } from '@/types/schedule';
 import { dayTypeLabels } from '@/types/schedule';
@@ -69,11 +70,6 @@ export function SchedulePage({ slug, deviceName, scenes, sseScheduleState, onClo
     setEditingSlot(null);
     reload();
   }, [slug]);
-
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
 
   useEffect(() => {
     if (sseScheduleState && sseScheduleState.device === slug) {
@@ -155,10 +151,9 @@ export function SchedulePage({ slug, deviceName, scenes, sseScheduleState, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
-      <div className="max-w-md mx-auto p-4 md:p-8">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
+    <>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
           <button
             onClick={onClose}
             className="p-2 -ml-2 rounded-lg hover:bg-accent transition-colors"
@@ -329,8 +324,7 @@ export function SchedulePage({ slug, deviceName, scenes, sseScheduleState, onClo
             })}
           </div>
         )}
-      </div>
-    </div>
+    </>
   );
 }
 
