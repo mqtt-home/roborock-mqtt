@@ -23,6 +23,14 @@ const (
 	BlockNoMopZones    = 12
 )
 
+// DebugBlock stores metadata and parsed data from a map block for debugging.
+type DebugBlock struct {
+	Type      int
+	HeaderLen int
+	DataLen   int
+	Points    []MapPoint // parsed coordinate pairs (if applicable)
+}
+
 // MapData represents parsed Roborock map data.
 type MapData struct {
 	MajorVersion int
@@ -34,6 +42,7 @@ type MapData struct {
 	Robot        *MapPosition
 	Path         []MapPoint
 	Rooms        map[int]bool // room IDs present
+	DebugBlocks  []DebugBlock
 }
 
 // MapImage represents the pixel grid of the map.
@@ -113,6 +122,13 @@ func ParseMapData(data []byte) (*MapData, error) {
 }
 
 func parseBlock(md *MapData, blockType int, header []byte, data []byte) {
+	// Record every block for debug visualization
+	db := DebugBlock{
+		Type:      blockType,
+		HeaderLen: len(header),
+		DataLen:   len(data),
+	}
+
 	switch blockType {
 	case BlockCharger:
 		if len(header) >= 16 {
@@ -120,6 +136,7 @@ func parseBlock(md *MapData, blockType int, header []byte, data []byte) {
 				X: int(binary.LittleEndian.Uint32(header[8:12])),
 				Y: int(binary.LittleEndian.Uint32(header[12:16])),
 			}
+			db.Points = []MapPoint{{X: md.Charger.X, Y: md.Charger.Y}}
 		}
 	case BlockImage:
 		parseImageBlock(md, header, data)
@@ -134,9 +151,9 @@ func parseBlock(md *MapData, blockType int, header []byte, data []byte) {
 			if len(header) >= 20 {
 				md.Robot.Angle = int(binary.LittleEndian.Uint32(header[16:20]))
 			}
+			db.Points = []MapPoint{{X: md.Robot.X, Y: md.Robot.Y}}
 		}
 	case BlockRoomSegments:
-		// Room segment IDs in the data bytes
 		for _, b := range data {
 			if b > 0 {
 				md.Rooms[int(b)] = true
@@ -145,8 +162,58 @@ func parseBlock(md *MapData, blockType int, header []byte, data []byte) {
 	case 1024:
 		// Digest block — ignore
 	default:
-		logger.Debug("Unknown map block type", "type", blockType)
+		// Try to parse unknown block data as coordinate pairs
+		db.Points = tryParseCoordinates(header, data)
+		if len(db.Points) > 0 {
+			logger.Debug("Parsed coordinates from unknown block", "type", blockType, "points", len(db.Points))
+		} else {
+			logger.Debug("Unknown map block type", "type", blockType)
+		}
 	}
+
+	md.DebugBlocks = append(md.DebugBlocks, db)
+}
+
+// tryParseCoordinates attempts to extract coordinate pairs from block data.
+// Many Roborock blocks store int32 coordinate pairs in the header (offset 8+)
+// or int16 pairs in the data section.
+func tryParseCoordinates(header []byte, data []byte) []MapPoint {
+	var points []MapPoint
+
+	// Try header coordinates (int32 pairs starting at offset 8)
+	if len(header) >= 16 {
+		for i := 8; i+7 < len(header); i += 8 {
+			x := int(int32(binary.LittleEndian.Uint32(header[i : i+4])))
+			y := int(int32(binary.LittleEndian.Uint32(header[i+4 : i+8])))
+			if x > -100000 && x < 100000 && y > -100000 && y < 100000 {
+				points = append(points, MapPoint{X: x, Y: y})
+			}
+		}
+	}
+
+	// Try data as int16 coordinate pairs (common for zone/wall data)
+	if len(data) >= 4 && len(data) <= 4096 && len(data)%4 == 0 {
+		for i := 0; i+3 < len(data); i += 4 {
+			x := int(int16(binary.LittleEndian.Uint16(data[i : i+2])))
+			y := int(int16(binary.LittleEndian.Uint16(data[i+2 : i+4])))
+			if x > -10000 && x < 100000 && y > -10000 && y < 100000 {
+				points = append(points, MapPoint{X: x, Y: y})
+			}
+		}
+	}
+
+	// Try data as int32 coordinate pairs
+	if len(data) >= 8 && len(data) <= 4096 && len(data)%8 == 0 && len(points) == 0 {
+		for i := 0; i+7 < len(data); i += 8 {
+			x := int(int32(binary.LittleEndian.Uint32(data[i : i+4])))
+			y := int(int32(binary.LittleEndian.Uint32(data[i+4 : i+8])))
+			if x > -100000 && x < 100000 && y > -100000 && y < 100000 {
+				points = append(points, MapPoint{X: x, Y: y})
+			}
+		}
+	}
+
+	return points
 }
 
 func parseImageBlock(md *MapData, header []byte, data []byte) {

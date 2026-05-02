@@ -1,17 +1,30 @@
 package roborock
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// VectorDebugBlock contains debug info for a single map block.
+type VectorDebugBlock struct {
+	Type      int      `json:"type"`
+	Label     string   `json:"label"`
+	HeaderLen int      `json:"header_len"`
+	DataLen   int      `json:"data_len"`
+	Points    [][2]int `json:"points,omitempty"`
+}
 
 // VectorMap is the JSON-serializable vector representation of a map.
 type VectorMap struct {
-	Width   int              `json:"width"`
-	Height  int              `json:"height"`
-	Rooms   []VectorRoom     `json:"rooms"`
-	Walls   []VectorSpan     `json:"walls"`
-	Floor   []VectorSpan     `json:"floor"`
-	Path    [][2]int         `json:"path"`
-	Charger *VectorPosition  `json:"charger,omitempty"`
-	Robot   *VectorPosition  `json:"robot,omitempty"`
+	Width       int                `json:"width"`
+	Height      int                `json:"height"`
+	Rooms       []VectorRoom       `json:"rooms"`
+	Walls       []VectorSpan       `json:"walls"`
+	Floor       []VectorSpan       `json:"floor"`
+	Path        [][2]int           `json:"path"`
+	Charger     *VectorPosition    `json:"charger,omitempty"`
+	Robot       *VectorPosition    `json:"robot,omitempty"`
+	DebugBlocks []VectorDebugBlock `json:"debug_blocks,omitempty"`
 }
 
 // VectorRoom groups run-length encoded spans for a single room.
@@ -130,5 +143,87 @@ func MapToVectorJSON(md *MapData) ([]byte, error) {
 		vm.Robot = &VectorPosition{X: rx, Y: ry, Angle: md.Robot.Angle}
 	}
 
+	// Debug blocks
+	for _, db := range md.DebugBlocks {
+		vdb := VectorDebugBlock{
+			Type:      db.Type,
+			Label:     blockTypeLabel(db.Type),
+			HeaderLen: db.HeaderLen,
+			DataLen:   db.DataLen,
+		}
+		for _, p := range db.Points {
+			px := (p.X / 50) - md.Image.Left
+			py := h - 1 - ((p.Y / 50) - md.Image.Top)
+			vdb.Points = append(vdb.Points, [2]int{px, py})
+		}
+		vm.DebugBlocks = append(vm.DebugBlocks, vdb)
+	}
+
 	return json.Marshal(vm)
+}
+
+func blockTypeLabel(id int) string {
+	switch id {
+	case BlockCharger:
+		return "Charger"
+	case BlockImage:
+		return "Image"
+	case BlockVacuumPath:
+		return "Vacuum Path"
+	case BlockGoToPath:
+		return "Go-To Path"
+	case BlockPredictedPath:
+		return "Predicted Path"
+	case BlockCleanedZones:
+		return "Cleaned Zones"
+	case BlockGoToTarget:
+		return "Go-To Target"
+	case BlockRobotPosition:
+		return "Robot Position"
+	case BlockNoGoZones:
+		return "No-Go Zones"
+	case BlockVirtualWalls:
+		return "Virtual Walls"
+	case BlockRoomSegments:
+		return "Room Segments"
+	case BlockNoMopZones:
+		return "No-Mop Zones"
+	case 13:
+		return "Active Segments"
+	case 14:
+		return "No-Go Zone V2"
+	case 15:
+		return "No-Mop Zone V2"
+	case 16:
+		return "Carpet Map"
+	case 17:
+		return "Secondary Image"
+	case 18:
+		return "Furniture"
+	case 19:
+		return "Dock Type"
+	case 20:
+		return "Enemy Heatmap"
+	case 21:
+		return "Smart Zone"
+	case 22:
+		return "Custom Carpet"
+	case 24:
+		return "Carpet Clean Area"
+	case 25:
+		return "Carpet Forbidden"
+	case 26:
+		return "Carpet Mode"
+	case 28:
+		return "Floor Material"
+	case 30:
+		return "Mop Path"
+	case 31:
+		return "Obstacle Info"
+	case 32:
+		return "AI Object Detection"
+	case 1024:
+		return "Digest"
+	}
+	return fmt.Sprintf("Block %d", id)
 }
