@@ -328,6 +328,9 @@ func main() {
 		}
 	}()
 
+	logger.Info("Application ready")
+	roborock.SendEmail("[Info] roborock-mqtt started", "The roborock-mqtt application has started and is ready.")
+
 	quitChannel := make(chan os.Signal, 1)
 	signal.Notify(quitChannel, syscall.SIGINT, syscall.SIGTERM)
 	<-quitChannel
