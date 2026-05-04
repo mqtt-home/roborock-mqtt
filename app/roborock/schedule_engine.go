@@ -258,6 +258,15 @@ func (se *ScheduleEngine) CheckAndDispatch() {
 		slots := se.GetSlotsForDayType(deviceName, dayType)
 		for _, slot := range slots {
 			if slot.Time == currentTime {
+				// Check if maintenance is pending and schedules should be disabled
+				if se.isMaintenancePending(slug) {
+					logger.Warn("Schedule skipped due to pending maintenance", "device", deviceName, "slug", slug, "time", slot.Time)
+					SendEmail(
+						fmt.Sprintf("[Info] %s - Schedule skipped", deviceName),
+						fmt.Sprintf("Scheduled action at %s for device \"%s\" was skipped because maintenance is pending.\n\nPlease check and reset the consumable counters.", slot.Time, deviceName),
+					)
+					continue
+				}
 				logger.Info("Schedule triggered", "device", deviceName, "slug", slug, "time", slot.Time, "action", slot.Action, "dayType", dayType)
 				se.dispatchAction(slug, slot)
 				state := se.GetScheduleState(deviceName, slug)
@@ -316,6 +325,27 @@ func (se *ScheduleEngine) StartTicker(stop chan struct{}) {
 			return
 		}
 	}
+}
+
+// isMaintenancePending checks if any consumable is at or below the critical threshold.
+func (se *ScheduleEngine) isMaintenancePending(slug string) bool {
+	cfg := config.Get()
+	if !cfg.Notifications.ShouldDisableScheduleOnMaintenance() {
+		return false
+	}
+
+	dev := se.deviceManager.GetDevice(slug)
+	if dev == nil {
+		return false
+	}
+	status := dev.GetStatus()
+	if status == nil {
+		return false
+	}
+
+	threshold := cfg.Notifications.Thresholds.CriticalPercent
+	p := status.ConsumablePercents
+	return p.MainBrush <= threshold || p.SideBrush <= threshold || p.Filter <= threshold || p.Sensor <= threshold
 }
 
 func (se *ScheduleEngine) dispatchAction(slug string, slot config.TimeSlot) {

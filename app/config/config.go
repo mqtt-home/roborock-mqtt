@@ -60,9 +60,19 @@ type ThresholdConfig struct {
 }
 
 type NotificationConfig struct {
-	Email               EmailConfig        `json:"email,omitempty"`
-	Thresholds          ThresholdConfig     `json:"thresholds,omitempty"`
-	ConsumableLifetimes ConsumableLifetimes `json:"consumable_lifetimes,omitempty"`
+	Email                       EmailConfig        `json:"email,omitempty"`
+	Thresholds                  ThresholdConfig     `json:"thresholds,omitempty"`
+	ConsumableLifetimes         ConsumableLifetimes `json:"consumable_lifetimes,omitempty"`
+	DisableScheduleOnMaintenance *bool              `json:"disable_schedule_on_maintenance,omitempty"`
+}
+
+// ShouldDisableScheduleOnMaintenance returns whether schedules should be paused
+// when maintenance is pending. Defaults to true.
+func (n NotificationConfig) ShouldDisableScheduleOnMaintenance() bool {
+	if n.DisableScheduleOnMaintenance == nil {
+		return true
+	}
+	return *n.DisableScheduleOnMaintenance
 }
 
 type RoborockConfig struct {
