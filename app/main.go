@@ -172,9 +172,13 @@ func startBridge(restClient *roborock.Client) {
 	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices(), restClient)
 	deviceManager.SetStatusCallback(func(slug string, status *roborock.PublishedStatus) {
 		publishDeviceStatus(slug, status)
-		// Check maintenance thresholds
-		if dev := deviceManager.GetDevice(slug); dev != nil {
-			maintenanceChecker.Check(dev.Info.Name, &status.ConsumablePercents, &status.Consumables)
+		// Check maintenance thresholds — only when consumable data was actually fetched
+		// (if ALL values are zero, the poll likely failed)
+		c := status.Consumables
+		if c.MainBrushWorkTime > 0 || c.SideBrushWorkTime > 0 || c.FilterWorkTime > 0 || c.SensorDirtyTime > 0 || c.DustCollectionWorkTimes > 0 {
+			if dev := deviceManager.GetDevice(slug); dev != nil {
+				maintenanceChecker.Check(dev.Info.Name, &status.ConsumablePercents, &status.Consumables)
+			}
 		}
 	})
 	deviceManager.SetMapCallback(publishDeviceMap)

@@ -3,7 +3,8 @@ import { Bug } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 
 interface VectorSpan { x: number; y: number; w: number }
-interface VectorRoom { id: number; color: string; center: [number, number]; spans: VectorSpan[] }
+interface VectorEdge { x1: number; y1: number; x2: number; y2: number }
+interface VectorRoom { id: number; color: string; center: [number, number]; spans: VectorSpan[]; outline?: VectorEdge[] }
 interface VectorPosition { x: number; y: number; angle?: number }
 interface VectorDebugBlock {
   type: number;
@@ -92,7 +93,7 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, [mapData]);
+  }, [mapData, viewCenter, viewWidth]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     setDragging(true);
@@ -159,7 +160,7 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
           ref={svgRef}
           viewBox={`${vbX} ${vbY} ${vw} ${vh}`}
           className="w-full h-auto"
-          style={{ display: 'block', background: 'var(--color-background)' }}
+          style={{ display: 'block' }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -167,12 +168,30 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
           onTouchMove={handleTouchMove}
           onDoubleClick={handleDoubleClick}
         >
-          {/* Floor */}
+          <defs>
+            <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
+              <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2332" strokeWidth={0.3} />
+            </pattern>
+            {/* Glow only on markers (just 2 elements) */}
+            <filter id="markerGlow" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* Dark background + grid */}
+          <rect x={vbX} y={vbY} width={vw} height={vh} fill="#0d1117" />
+          <rect x={vbX} y={vbY} width={vw} height={vh} fill="url(#grid)" />
+
+          {/* Floor — very subtle */}
           {floor?.map((s, i) => (
-            <rect key={`f${i}`} x={s.x} y={s.y} width={s.w} height={1} fill="#B4BEC8" />
+            <rect key={`f${i}`} x={s.x} y={s.y} width={s.w} height={1} fill="#1e293b" opacity={0.5} />
           ))}
 
-          {/* Rooms */}
+          {/* Room fills — low opacity */}
           {rooms?.map(room =>
             <g key={`rg${room.id}`}
               onPointerEnter={() => setHoveredRoom(room.id)}
@@ -181,7 +200,7 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
               {room.spans.map((s, i) => (
                 <rect key={`r${room.id}-${i}`} x={s.x} y={s.y} width={s.w} height={1}
                   fill={room.color}
-                  opacity={hoveredRoom === room.id ? 0.95 : 0.7}
+                  opacity={hoveredRoom === room.id ? 0.25 : 0.12}
                 />
               ))}
             </g>
@@ -189,10 +208,38 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
 
           {/* Walls */}
           {walls?.map((s, i) => (
-            <rect key={`w${i}`} x={s.x} y={s.y} width={s.w} height={1} fill="#3C3C3C" />
+            <rect key={`w${i}`} x={s.x} y={s.y} width={s.w} height={1} fill="#64748b" />
           ))}
 
-          {/* Room labels */}
+          {/* Room outlines — colored borders as single path per room */}
+          {rooms?.map(room => {
+            if (!room.outline || room.outline.length === 0) return null;
+            const isHov = hoveredRoom === room.id;
+            const d = room.outline.map(e => `M${e.x1},${e.y1}L${e.x2},${e.y2}`).join('');
+            return (
+              <path key={`ro${room.id}`}
+                d={d}
+                stroke={room.color}
+                strokeWidth={isHov ? 1.2 : 0.6}
+                opacity={isHov ? 1 : 0.7}
+                fill="none"
+              />
+            );
+          })}
+
+          {/* Cleaning path — bright subtle */}
+          {path && path.length > 1 && (
+            <polyline
+              points={path.map(([x, y]) => `${x},${y}`).join(' ')}
+              fill="none"
+              stroke="rgba(100,200,255,0.35)"
+              strokeWidth={0.4}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+
+          {/* Room labels — with glow */}
           {rooms?.map(room => {
             const name = room_names?.[String(room.id)] ?? `Room ${room.id}`;
             return (
@@ -204,10 +251,10 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
                 dominantBaseline="central"
                 fontSize={fontSize}
                 fontFamily="system-ui, sans-serif"
-                fontWeight={hoveredRoom === room.id ? 700 : 600}
-                fill="#fff"
-                stroke="#000"
-                strokeWidth={fontSize * 0.15}
+                fontWeight={hoveredRoom === room.id ? 700 : 500}
+                fill={hoveredRoom === room.id ? '#fff' : 'rgba(255,255,255,0.85)'}
+                stroke="#0d1117"
+                strokeWidth={fontSize * 0.2}
                 paintOrder="stroke"
                 style={{ pointerEvents: 'none' }}
               >
@@ -216,26 +263,20 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
             );
           })}
 
-          {/* Cleaning path */}
-          {path && path.length > 1 && (
-            <polyline
-              points={path.map(([x, y]) => `${x},${y}`).join(' ')}
-              fill="none"
-              stroke="rgba(255,255,255,0.5)"
-              strokeWidth={0.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
-
-          {/* Charger */}
+          {/* Charger — with glow halo */}
           {charger && (
-            <circle cx={charger.x} cy={charger.y} r={fontSize * 0.6} fill="#4285F4" stroke="#fff" strokeWidth={fontSize * 0.1} />
+            <g filter="url(#markerGlow)">
+              <circle cx={charger.x} cy={charger.y} r={fontSize * 0.8} fill="#3B82F6" opacity={0.3} />
+              <circle cx={charger.x} cy={charger.y} r={fontSize * 0.5} fill="#3B82F6" stroke="#60A5FA" strokeWidth={fontSize * 0.1} />
+            </g>
           )}
 
-          {/* Robot */}
+          {/* Robot — with glow halo */}
           {robot && (
-            <circle cx={robot.x} cy={robot.y} r={fontSize * 0.6} fill="#34A853" stroke="#fff" strokeWidth={fontSize * 0.1} />
+            <g filter="url(#markerGlow)">
+              <circle cx={robot.x} cy={robot.y} r={fontSize * 0.8} fill="#22C55E" opacity={0.3} />
+              <circle cx={robot.x} cy={robot.y} r={fontSize * 0.5} fill="#22C55E" stroke="#4ADE80" strokeWidth={fontSize * 0.1} />
+            </g>
           )}
 
           {/* Debug highlight overlay */}

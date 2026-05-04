@@ -28,12 +28,21 @@ type VectorMap struct {
 	DebugBlocks []VectorDebugBlock `json:"debug_blocks,omitempty"`
 }
 
+// VectorEdge represents a line segment for room outlines.
+type VectorEdge struct {
+	X1 int `json:"x1"`
+	Y1 int `json:"y1"`
+	X2 int `json:"x2"`
+	Y2 int `json:"y2"`
+}
+
 // VectorRoom groups run-length encoded spans for a single room.
 type VectorRoom struct {
-	ID     int          `json:"id"`
-	Color  string       `json:"color"`
-	Center [2]int       `json:"center"`
-	Spans  []VectorSpan `json:"spans"`
+	ID      int           `json:"id"`
+	Color   string        `json:"color"`
+	Center  [2]int        `json:"center"`
+	Spans   []VectorSpan  `json:"spans"`
+	Outline []VectorEdge  `json:"outline,omitempty"`
 }
 
 // VectorSpan is a horizontal run of pixels: row Y, from X to X+W.
@@ -50,12 +59,12 @@ type VectorPosition struct {
 	Angle int `json:"angle,omitempty"`
 }
 
-// hexColors maps room color palette to hex strings.
+// hexColors maps room color palette — bright colors for dark backgrounds.
 var hexColors = []string{
-	"#4285F4", "#34A853", "#FBBC04", "#EA4335",
-	"#673AB7", "#00BCD4", "#FF9800", "#E91E63",
-	"#009688", "#795548", "#3F51B5", "#8BC34A",
-	"#FF5722", "#9E9E9E", "#2196F3", "#CDDC39",
+	"#00D4AA", "#FF8C42", "#A855F7", "#3B82F6",
+	"#22C55E", "#EC4899", "#06B6D4", "#F59E0B",
+	"#14B8A6", "#F43F5E", "#8B5CF6", "#84CC16",
+	"#0EA5E9", "#D946EF", "#10B981", "#FB923C",
 }
 
 // MapToVectorJSON converts parsed map data to a JSON vector representation.
@@ -117,11 +126,11 @@ func MapToVectorJSON(md *MapData) ([]byte, error) {
 		}
 	}
 
-	// Convert room spans map to sorted list with centroids
+	// Convert room spans map to sorted list with centroids and outlines
 	for id, spans := range roomSpans {
 		var sumX, sumY, totalW int
 		for _, s := range spans {
-			sumX += (s.X + s.X + s.W) * s.W / 2 // weighted midpoint
+			sumX += (s.X + s.X + s.W) * s.W / 2
 			sumY += s.Y * s.W
 			totalW += s.W
 		}
@@ -130,11 +139,15 @@ func MapToVectorJSON(md *MapData) ([]byte, error) {
 			cx = sumX / totalW
 			cy = sumY / totalW
 		}
+
+		outline := computeRoomOutline(spans, id, roomSpans)
+
 		vm.Rooms = append(vm.Rooms, VectorRoom{
-			ID:     id,
-			Color:  hexColors[id%len(hexColors)],
-			Center: [2]int{cx, cy},
-			Spans:  spans,
+			ID:      id,
+			Color:   hexColors[id%len(hexColors)],
+			Center:  [2]int{cx, cy},
+			Spans:   spans,
+			Outline: outline,
 		})
 	}
 
@@ -174,6 +187,56 @@ func MapToVectorJSON(md *MapData) ([]byte, error) {
 	}
 
 	return json.Marshal(vm)
+}
+
+// computeRoomOutline finds the boundary edges of a room by checking
+// which span edges border non-room pixels.
+func computeRoomOutline(spans []VectorSpan, roomID int, allRoomSpans map[int][]VectorSpan) []VectorEdge {
+	// Build a set of all pixels belonging to this room for fast lookup
+	type pixel struct{ x, y int }
+	roomPixels := make(map[pixel]bool)
+	for _, s := range spans {
+		for x := s.X; x < s.X+s.W; x++ {
+			roomPixels[pixel{x, s.Y}] = true
+		}
+	}
+
+	var edges []VectorEdge
+
+	for _, s := range spans {
+		// Top edge: if pixel above is not this room
+		if !roomPixels[pixel{s.X, s.Y - 1}] {
+			// Find how far the top edge extends
+			endX := s.X
+			for endX < s.X+s.W && !roomPixels[(pixel{endX, s.Y - 1})] {
+				endX++
+			}
+			if endX > s.X {
+				edges = append(edges, VectorEdge{s.X, s.Y, endX, s.Y})
+			}
+		}
+		// Bottom edge
+		if !roomPixels[pixel{s.X, s.Y + 1}] {
+			endX := s.X
+			for endX < s.X+s.W && !roomPixels[(pixel{endX, s.Y + 1})] {
+				endX++
+			}
+			if endX > s.X {
+				edges = append(edges, VectorEdge{s.X, s.Y + 1, endX, s.Y + 1})
+			}
+		}
+		// Left edge
+		if !roomPixels[pixel{s.X - 1, s.Y}] {
+			edges = append(edges, VectorEdge{s.X, s.Y, s.X, s.Y + 1})
+		}
+		// Right edge
+		endX := s.X + s.W
+		if !roomPixels[pixel{endX, s.Y}] {
+			edges = append(edges, VectorEdge{endX, s.Y, endX, s.Y + 1})
+		}
+	}
+
+	return edges
 }
 
 func blockTypeLabel(id int) string {

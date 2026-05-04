@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -231,7 +232,12 @@ func (dm *DeviceManager) PollAll() {
 
 		consumables, err := md.CloudMQTT.PollConsumables()
 		if err != nil {
-			logger.Debug("Failed to poll consumables", "device", md.Slug, "error", err)
+			logger.Debug("Failed to poll consumables, keeping last known values", "device", md.Slug, "error", err)
+			// Preserve last known consumable data
+			if prev := md.GetStatus(); prev != nil {
+				published.Consumables = prev.Consumables
+				published.ConsumablePercents = prev.ConsumablePercents
+			}
 		} else {
 			published.Consumables = *consumables
 			published.ConsumablePercents = ComputeConsumablePercents(consumables)
@@ -307,7 +313,7 @@ type DeviceSummary struct {
 	Scenes []Scene          `json:"scenes,omitempty"`
 }
 
-// GetSummaries returns a list of device summaries for the API.
+// GetSummaries returns a list of device summaries for the API, sorted by name.
 func (dm *DeviceManager) GetSummaries() []DeviceSummary {
 	var summaries []DeviceSummary
 	for _, md := range dm.devices {
@@ -320,5 +326,8 @@ func (dm *DeviceManager) GetSummaries() []DeviceSummary {
 			Scenes: md.Scenes,
 		})
 	}
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Name < summaries[j].Name
+	})
 	return summaries
 }

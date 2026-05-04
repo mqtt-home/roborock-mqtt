@@ -2,6 +2,7 @@ package roborock
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/mqtt-home/roborock-mqtt/config"
 	"github.com/philipparndt/go-logger"
@@ -9,7 +10,8 @@ import (
 
 // MaintenanceChecker checks consumable thresholds and sends notifications.
 type MaintenanceChecker struct {
-	state *NotificationState
+	state     *NotificationState
+	lastCheck time.Time
 }
 
 // NewMaintenanceChecker creates a new maintenance checker.
@@ -25,6 +27,7 @@ func (mc *MaintenanceChecker) ClearConsumable(deviceName, consumable string) {
 }
 
 // Check evaluates consumable levels and sends notifications if thresholds are crossed.
+// Sends notifications on threshold change or once per day (whichever comes first).
 func (mc *MaintenanceChecker) Check(deviceName string, percents *ConsumablePercents, consumables *ConsumableStatus) {
 	cfg := config.Get()
 	if !cfg.Notifications.Email.Enabled {
@@ -72,9 +75,12 @@ func (mc *MaintenanceChecker) checkItem(deviceName, name string, percent, workTi
 		return
 	}
 
-	// Check if already notified at this level
+	// Send if: new threshold crossed, OR 24h since last notification at same level
 	if entry != nil && entry.LastNotifiedPercent <= threshold {
-		return
+		if time.Since(entry.NotifiedAt) < 24*time.Hour {
+			return
+		}
+		logger.Debug("Daily reminder for maintenance", "device", deviceName, "consumable", name, "percent", percent)
 	}
 
 	var usageStr string

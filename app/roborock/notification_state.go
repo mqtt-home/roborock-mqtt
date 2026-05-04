@@ -5,14 +5,16 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/philipparndt/go-logger"
 )
 
 // NotificationEntry tracks the last notification sent for a consumable.
 type NotificationEntry struct {
-	LastNotifiedPercent int `json:"last_notified_percent"`
-	WorkTimeAtNotify    int `json:"work_time_at_notify"`
+	LastNotifiedPercent int       `json:"last_notified_percent"`
+	WorkTimeAtNotify    int       `json:"work_time_at_notify"`
+	NotifiedAt          time.Time `json:"notified_at"`
 }
 
 // NotificationState tracks sent notifications per device per consumable.
@@ -53,6 +55,7 @@ func (ns *NotificationState) Set(deviceName, consumable string, percent, workTim
 	ns.state[deviceName][consumable] = &NotificationEntry{
 		LastNotifiedPercent: percent,
 		WorkTimeAtNotify:    workTime,
+		NotifiedAt:          time.Now(),
 	}
 	ns.save()
 }
