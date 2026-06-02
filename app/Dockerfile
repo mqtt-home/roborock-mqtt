@@ -5,6 +5,11 @@ FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/web
 
+# pnpm 10 treats ignored dependency build scripts (e.g. esbuild) as a hard error
+# in a non-CI context; CI=true downgrades it to a warning. esbuild's native binary
+# is provided via optionalDependencies, so skipping its build script is harmless.
+ENV CI=true
+
 COPY web/package.json web/pnpm-lock.yaml* web/pnpm-workspace.yaml ./
 
 RUN npm install -g pnpm && pnpm install --frozen-lockfile
