@@ -1,10 +1,37 @@
 import { useState, useEffect, useRef } from 'react';
-import { Battery, Clock, MapPin, Loader2 } from 'lucide-react';
+import { Battery, Clock, MapPin, Loader2, Hourglass, Flag } from 'lucide-react';
 import type { VacuumStatus } from '@/types/status';
 import { formatCleanArea } from '@/types/status';
+import type { SceneInfo } from '@/lib/api';
 
 interface CleaningProgressProps {
   status: VacuumStatus;
+  scenes?: SceneInfo[];
+}
+
+// programLabel turns an internal program key into a human-readable label.
+function programLabel(program: string, scenes?: SceneInfo[]): string {
+  if (program.startsWith('scene:')) {
+    const id = Number(program.slice('scene:'.length));
+    return scenes?.find(s => s.id === id)?.name ?? `Program #${id}`;
+  }
+  if (program.startsWith('seg:')) {
+    return `Rooms ${program.slice('seg:'.length).replace(/-/g, ', ')}`;
+  }
+  switch (program) {
+    case 'full': return 'Full clean';
+    case 'zone': return 'Zone clean';
+    case 'segment': return 'Segment clean';
+    default: return program;
+  }
+}
+
+// formatClock renders an RFC3339 timestamp as a local HH:MM time.
+function formatClock(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 const stateColors: Record<string, { bg: string; text: string; label: string }> = {
@@ -30,7 +57,7 @@ function formatTime(seconds: number): string {
   return `${pad(m)}:${pad(s)}`;
 }
 
-export function CleaningProgress({ status }: CleaningProgressProps) {
+export function CleaningProgress({ status, scenes }: CleaningProgressProps) {
   const [displayTime, setDisplayTime] = useState(status.clean_time);
   const lastServerTime = useRef(status.clean_time);
   const isCleaning = status.in_cleaning;
@@ -94,6 +121,38 @@ export function CleaningProgress({ status }: CleaningProgressProps) {
           </div>
         </div>
       </div>
+
+      {/* Estimate (from previous runs of the same program) */}
+      {status.remaining_minutes != null && (
+        <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-border">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground mb-1">
+              <Hourglass className="h-4 w-4" />
+              <span className="text-xs uppercase tracking-wide">Remaining</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground tabular-nums">
+              ~{status.remaining_minutes} min
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground mb-1">
+              <Flag className="h-4 w-4" />
+              <span className="text-xs uppercase tracking-wide">Done by</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground tabular-nums">
+              {formatClock(status.time_completed)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Program label + recorded baseline */}
+      {status.program && (
+        <div className="mt-3 text-center text-xs text-muted-foreground">
+          {programLabel(status.program, scenes)}
+          {status.recorded_minutes != null && ` · recorded ~${status.recorded_minutes} min`}
+        </div>
+      )}
     </div>
   );
 }

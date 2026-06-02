@@ -35,6 +35,12 @@ func TestRunTrackerEstimatesFromPreviousRun(t *testing.T) {
 	if ps2.RemainingMinutes == nil || *ps2.RemainingMinutes != 8 {
 		t.Fatalf("expected remaining 8 min, got %v", ps2.RemainingMinutes)
 	}
+	if ps2.Program == nil || *ps2.Program != "full" {
+		t.Fatalf("expected program 'full', got %v", ps2.Program)
+	}
+	if ps2.RecordedMinutes == nil || *ps2.RecordedMinutes != 10 {
+		t.Fatalf("expected recorded 10 min, got %v", ps2.RecordedMinutes)
+	}
 	if ps2.TimeCompleted == nil {
 		t.Fatal("expected time_completed to be set")
 	}

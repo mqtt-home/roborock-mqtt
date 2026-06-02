@@ -276,7 +276,7 @@ function DeviceHome({ devices, statuses, scheduleStates, scenesBySlug, activeSce
           <p className="text-sm text-muted-foreground">Waiting for status...</p>
         </div>
       ) : status && activeCleaningStates.has(status.state) ? (
-        <CleaningProgress status={status} />
+        <CleaningProgress status={status} scenes={scenes} />
       ) : status && (
         <div className="mb-6 p-4 bg-card rounded-lg border border-border">
           <div className="flex items-center justify-between mb-3">

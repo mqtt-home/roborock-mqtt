@@ -114,11 +114,17 @@ func (rt *RunTracker) Update(slug string, status *DeviceStatus, published *Publi
 	}
 	run.maxCleanTime = max(run.maxCleanTime, status.CleanTime)
 
+	program := run.key
+	published.Program = &program
+
 	// Without a reference duration we cannot estimate yet (first run of a program).
 	last := rt.durations[slug][run.key]
 	if last <= 0 {
 		return
 	}
+
+	recorded := int(math.Round(float64(last) / 60.0))
+	published.RecordedMinutes = &recorded
 
 	remaining := last - status.CleanTime
 	if remaining < 0 {

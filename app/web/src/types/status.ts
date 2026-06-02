@@ -28,8 +28,10 @@ export interface VacuumStatus {
   consumables: ConsumableStatus;
   consumable_percents: ConsumablePercents;
   // Estimated from previous runs of the same program (absent until known).
+  program?: string; // scene:<id> | seg:<rooms> | full | zone | segment
   remaining_minutes?: number;
   time_completed?: string; // RFC3339 with timezone offset
+  recorded_minutes?: number; // reference duration the estimate is based on
 }
 
 export interface DeviceSummary {

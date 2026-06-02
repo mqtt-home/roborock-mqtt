@@ -25,6 +25,7 @@ var (
 	notAtHomeStore     *roborock.NotAtHomeStore
 	scheduleStore      *roborock.ScheduleStore
 	maintenanceChecker *roborock.MaintenanceChecker
+	webServer          *web.WebServer
 	stopPolling        chan struct{}
 	stopSchedule       chan struct{}
 	dataDir            string
@@ -174,6 +175,10 @@ func startBridge(restClient *roborock.Client) {
 	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices(), restClient, dataDir)
 	deviceManager.SetStatusCallback(func(slug string, status *roborock.PublishedStatus) {
 		publishDeviceStatus(slug, status)
+		// Push live status (including the cleaning ETA) to connected web clients.
+		if webServer != nil {
+			webServer.BroadcastDeviceStatus(slug, status)
+		}
 		// Check maintenance thresholds — only when consumable data was actually fetched
 		// (if ALL values are zero, the poll likely failed)
 		c := status.Consumables
@@ -289,7 +294,6 @@ func main() {
 	}
 
 	// Start web server (always, needed for login UI when not authenticated)
-	var webServer *web.WebServer
 	webServer = web.NewWebServer(deviceManager, restClient, func() {
 		startBridge(restClient)
 		webServer.SetDeviceManager(deviceManager)
