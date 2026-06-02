@@ -135,6 +135,7 @@ func dispatchCommand(dev *roborock.ManagedDevice, action string, segments []int,
 		err = dev.CloudMQTT.Dock()
 	case "segment_clean":
 		logger.Info("Starting segment clean", "device", dev.Slug, "segments", segments)
+		deviceManager.NoteSegmentClean(dev.Slug, segments)
 		err = dev.CloudMQTT.SegmentClean(segments)
 	case "set_fan_speed":
 		logger.Info("Setting fan speed", "device", dev.Slug, "speed", speed)
@@ -147,6 +148,7 @@ func dispatchCommand(dev *roborock.ManagedDevice, action string, segments []int,
 		err = dev.CloudMQTT.SetWaterBox(level)
 	case "scene":
 		logger.Info("Executing scene", "device", dev.Slug, "sceneID", sceneID)
+		deviceManager.NoteSceneStarted(sceneID)
 		err = deviceManager.ExecuteScene(sceneID)
 	default:
 		logger.Warn("Unknown action", "device", dev.Slug, "action", action)
@@ -169,7 +171,7 @@ func startBridge(restClient *roborock.Client) {
 	maintenanceChecker = roborock.NewMaintenanceChecker(dataDir)
 
 	// Create device manager for all devices
-	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices(), restClient)
+	deviceManager = roborock.NewDeviceManager(restClient.GetLoginData(), restClient.GetDevices(), restClient, dataDir)
 	deviceManager.SetStatusCallback(func(slug string, status *roborock.PublishedStatus) {
 		publishDeviceStatus(slug, status)
 		// Check maintenance thresholds — only when consumable data was actually fetched

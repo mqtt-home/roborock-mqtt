@@ -196,4 +196,10 @@ type PublishedStatus struct {
 	InCleaning         bool               `json:"in_cleaning"`
 	Consumables        ConsumableStatus   `json:"consumables"`
 	ConsumablePercents ConsumablePercents `json:"consumable_percents"`
+	// RemainingMinutes and TimeCompleted are estimated from how long previous
+	// runs of the same program took (Roborock reports no ETA). They are only set
+	// while cleaning and once a reference run has been recorded; TimeCompleted is
+	// an RFC3339 timestamp with timezone offset.
+	RemainingMinutes *int    `json:"remaining_minutes,omitempty"`
+	TimeCompleted    *string `json:"time_completed,omitempty"`
 }

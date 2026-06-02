@@ -60,16 +60,18 @@ type DeviceManager struct {
 	bySlug     map[string]*ManagedDevice
 	loginData  *LoginData
 	restClient *Client
+	runTracker *RunTracker
 	mu         sync.RWMutex
 	onStatus   func(slug string, status *PublishedStatus)
 	onMap      func(slug string, pngData []byte)
 }
 
 // NewDeviceManager creates a manager for the given devices.
-func NewDeviceManager(loginData *LoginData, devices []DeviceInfo, restClient *Client) *DeviceManager {
+func NewDeviceManager(loginData *LoginData, devices []DeviceInfo, restClient *Client, dataDir string) *DeviceManager {
 	dm := &DeviceManager{
 		loginData:  loginData,
 		restClient: restClient,
+		runTracker: NewRunTracker(dataDir),
 		bySlug:     make(map[string]*ManagedDevice),
 	}
 
@@ -120,6 +122,7 @@ func (dm *DeviceManager) ConnectAll() {
 				Error:      status.ErrorName,
 				InCleaning: status.InCleaning > 0,
 			}
+			dm.runTracker.Update(dev.Slug, status, published)
 			dev.SetStatus(published)
 			if dm.onStatus != nil {
 				dm.onStatus(dev.Slug, published)
@@ -195,6 +198,18 @@ func (dm *DeviceManager) ExecuteScene(sceneID int) error {
 	return dm.restClient.ExecuteScene(sceneID)
 }
 
+// NoteSceneStarted associates an upcoming cleaning run with a triggered scene so
+// its ETA is estimated from previous runs of the same scene.
+func (dm *DeviceManager) NoteSceneStarted(sceneID int) {
+	dm.runTracker.NoteSceneStarted(sceneID)
+}
+
+// NoteSegmentClean associates an upcoming cleaning run with a triggered segment
+// clean so its ETA is estimated from previous runs of the same rooms.
+func (dm *DeviceManager) NoteSegmentClean(slug string, segments []int) {
+	dm.runTracker.NoteSegmentClean(slug, segments)
+}
+
 // DisconnectAll disconnects all devices.
 func (dm *DeviceManager) DisconnectAll() {
 	for _, md := range dm.devices {
@@ -243,6 +258,7 @@ func (dm *DeviceManager) PollAll() {
 			published.ConsumablePercents = ComputeConsumablePercents(consumables)
 		}
 
+		dm.runTracker.Update(md.Slug, status, published)
 		md.SetStatus(published)
 		if dm.onStatus != nil {
 			dm.onStatus(md.Slug, published)
