@@ -35,12 +35,11 @@ const (
 //   - "full"/"zone"/"segment" — fallback derived from the cleaning mode when the
 //     run was started outside this bridge (e.g. the Roborock app)
 type RunTracker struct {
-	filePath     string
-	mu           sync.Mutex
-	durations    map[string]map[string]int // slug -> runKey -> seconds (persisted)
-	active       map[string]*activeRun     // slug -> current run (in-memory)
-	pending      map[string]pendingIntent  // slug -> per-device intent (in-memory)
-	pendingScene *sceneIntent              // home-wide scene intent (in-memory)
+	filePath  string
+	mu        sync.Mutex
+	durations map[string]map[string]int // slug -> runKey -> seconds (persisted)
+	active    map[string]*activeRun     // slug -> current run (in-memory)
+	pending   map[string]pendingIntent  // slug -> per-device intent (in-memory)
 }
 
 type activeRun struct {
@@ -51,11 +50,6 @@ type activeRun struct {
 type pendingIntent struct {
 	key string
 	at  time.Time
-}
-
-type sceneIntent struct {
-	sceneID int
-	at      time.Time
 }
 
 // NewRunTracker creates a run tracker persisting to dataDir/run_durations/state.json.
@@ -78,12 +72,13 @@ func (rt *RunTracker) NoteSegmentClean(slug string, segments []int) {
 	rt.pending[slug] = pendingIntent{key: segmentKey(segments), at: time.Now()}
 }
 
-// NoteSceneStarted records that a scene was triggered (home-wide). The next run
-// that starts on any device adopts this scene as its program key.
-func (rt *RunTracker) NoteSceneStarted(sceneID int) {
+// NoteSceneStarted records that a scene was triggered for a device, so the
+// resulting run on that device is keyed by the scene. Keyed per device so a
+// scene started for one bot is never mis-attributed to another.
+func (rt *RunTracker) NoteSceneStarted(slug string, sceneID int) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	rt.pendingScene = &sceneIntent{sceneID: sceneID, at: time.Now()}
+	rt.pending[slug] = pendingIntent{key: fmt.Sprintf("scene:%d", sceneID), at: time.Now()}
 }
 
 // Update advances the run state machine for a device and, while cleaning, fills
@@ -141,20 +136,11 @@ func (rt *RunTracker) Update(slug string, status *DeviceStatus, published *Publi
 func (rt *RunTracker) resolveRunKey(slug string, status *DeviceStatus) string {
 	now := time.Now()
 
-	// A command we dispatched for this device wins (segment clean).
+	// A command we dispatched for this device wins (scene or segment clean).
 	if intent, ok := rt.pending[slug]; ok {
 		delete(rt.pending, slug)
 		if now.Sub(intent.at) <= intentTTL {
 			return intent.key
-		}
-	}
-
-	// A scene we triggered is home-wide; the first run to start consumes it.
-	if rt.pendingScene != nil {
-		intent := rt.pendingScene
-		rt.pendingScene = nil
-		if now.Sub(intent.at) <= intentTTL {
-			return fmt.Sprintf("scene:%d", intent.sceneID)
 		}
 	}
 

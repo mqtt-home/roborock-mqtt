@@ -360,7 +360,7 @@ func (se *ScheduleEngine) dispatchAction(slug string, slot config.TimeSlot) {
 	case "start":
 		err = dev.CloudMQTT.Start()
 	case "scene":
-		se.deviceManager.NoteSceneStarted(slot.SceneID)
+		se.deviceManager.NoteSceneStarted(slug, slot.SceneID)
 		err = se.deviceManager.ExecuteScene(slot.SceneID)
 	default:
 		logger.Warn("Unknown schedule action", "slug", slug, "action", slot.Action)

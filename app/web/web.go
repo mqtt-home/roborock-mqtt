@@ -352,9 +352,9 @@ func (ws *WebServer) executeScene(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid scene id"}`, http.StatusBadRequest)
 		return
 	}
-	// Tag the upcoming run with the scene id so its duration is recorded under
-	// the same program key as the MQTT/schedule paths (enables the ETA estimate).
-	ws.deviceManager.NoteSceneStarted(id)
+	// Tag the upcoming run on this device with the scene id so its duration is
+	// recorded under the same program key as the MQTT/schedule paths.
+	ws.deviceManager.NoteSceneStarted(chi.URLParam(r, "slug"), id)
 	if err := ws.deviceManager.ExecuteScene(id); err != nil {
 		logger.Error("Failed to execute scene", "id", id, "error", err)
 		http.Error(w, `{"error":"failed to execute scene"}`, http.StatusInternalServerError)

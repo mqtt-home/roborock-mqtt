@@ -74,10 +74,25 @@ func TestRunTrackerClampsRemaining(t *testing.T) {
 
 func TestRunTrackerSceneKey(t *testing.T) {
 	rt := NewRunTracker(t.TempDir())
-	rt.NoteSceneStarted(42)
+	rt.NoteSceneStarted("vac", 42)
 	rt.Update("vac", cleaning(1, 60), &PublishedStatus{})
 	if run := rt.active["vac"]; run == nil || run.key != "scene:42" {
 		t.Fatalf("expected scene:42 key, got %+v", run)
+	}
+}
+
+func TestRunTrackerSceneIsPerDevice(t *testing.T) {
+	rt := NewRunTracker(t.TempDir())
+	// A scene started for "a" must not be adopted by a different device "b"
+	// that happens to start cleaning first.
+	rt.NoteSceneStarted("a", 42)
+	rt.Update("b", cleaning(1, 60), &PublishedStatus{})
+	if run := rt.active["b"]; run == nil || run.key != "full" {
+		t.Fatalf("device b should fall back to 'full', got %+v", run)
+	}
+	rt.Update("a", cleaning(1, 60), &PublishedStatus{})
+	if run := rt.active["a"]; run == nil || run.key != "scene:42" {
+		t.Fatalf("device a should be scene:42, got %+v", run)
 	}
 }
 
@@ -100,7 +115,7 @@ func TestRunTrackerFallbackByMode(t *testing.T) {
 
 func TestRunTrackerExpiredIntentFallsBack(t *testing.T) {
 	rt := NewRunTracker(t.TempDir())
-	rt.pendingScene = &sceneIntent{sceneID: 7, at: time.Now().Add(-2 * intentTTL)}
+	rt.pending["vac"] = pendingIntent{key: "scene:7", at: time.Now().Add(-2 * intentTTL)}
 	rt.Update("vac", cleaning(1, 60), &PublishedStatus{})
 	if run := rt.active["vac"]; run == nil || run.key != "full" {
 		t.Fatalf("expected fallback to full after expiry, got %+v", run)

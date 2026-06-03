@@ -149,7 +149,7 @@ func dispatchCommand(dev *roborock.ManagedDevice, action string, segments []int,
 		err = dev.CloudMQTT.SetWaterBox(level)
 	case "scene":
 		logger.Info("Executing scene", "device", dev.Slug, "sceneID", sceneID)
-		deviceManager.NoteSceneStarted(sceneID)
+		deviceManager.NoteSceneStarted(dev.Slug, sceneID)
 		err = deviceManager.ExecuteScene(sceneID)
 	default:
 		logger.Warn("Unknown action", "device", dev.Slug, "action", action)

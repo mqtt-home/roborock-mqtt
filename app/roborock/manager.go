@@ -198,10 +198,10 @@ func (dm *DeviceManager) ExecuteScene(sceneID int) error {
 	return dm.restClient.ExecuteScene(sceneID)
 }
 
-// NoteSceneStarted associates an upcoming cleaning run with a triggered scene so
-// its ETA is estimated from previous runs of the same scene.
-func (dm *DeviceManager) NoteSceneStarted(sceneID int) {
-	dm.runTracker.NoteSceneStarted(sceneID)
+// NoteSceneStarted associates an upcoming cleaning run on a device with a
+// triggered scene so its ETA is estimated from previous runs of the same scene.
+func (dm *DeviceManager) NoteSceneStarted(slug string, sceneID int) {
+	dm.runTracker.NoteSceneStarted(slug, sceneID)
 }
 
 // NoteSegmentClean associates an upcoming cleaning run with a triggered segment
