@@ -26,7 +26,8 @@ const allDayTypes: DayType[] = ['normal', 'weekend', 'free', 'notAtHome'];
 function getActionLabel(slot: TimeSlot, scenes: SceneInfo[]): string {
   if (slot.action === 'scene') {
     const scene = scenes.find(s => s.id === slot.scene_id);
-    return scene ? scene.name : `Scene #${slot.scene_id}`;
+    if (!scene) return `Scene #${slot.scene_id}`;
+    return scene.recorded_minutes != null ? `${scene.name} (~${scene.recorded_minutes} min)` : scene.name;
   }
   return slot.action.charAt(0).toUpperCase() + slot.action.slice(1);
 }

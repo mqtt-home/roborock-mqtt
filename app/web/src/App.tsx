@@ -341,10 +341,15 @@ function DeviceHome({ devices, statuses, scheduleStates, scenesBySlug, activeSce
                   activeSceneId === scene.id && isCleaning ? 'border-primary bg-primary/10' : 'border-border bg-card hover:bg-accent'
                 }`}
               >
-                <span className={`text-sm ${activeSceneId === scene.id && isCleaning ? 'text-primary font-medium' : 'text-foreground'}`}>{scene.name}</span>
+                <span className="flex flex-col items-start min-w-0">
+                  <span className={`text-sm truncate ${activeSceneId === scene.id && isCleaning ? 'text-primary font-medium' : 'text-foreground'}`}>{scene.name}</span>
+                  {scene.recorded_minutes != null && (
+                    <span className="text-xs text-muted-foreground tabular-nums">~{scene.recorded_minutes} min</span>
+                  )}
+                </span>
                 {activeSceneId === scene.id && isCleaning
                   ? <span className="text-xs uppercase tracking-wide bg-primary text-primary-foreground px-2 py-0.5 rounded">Active</span>
-                  : <Play className="h-4 w-4 text-green-500" />
+                  : <Play className="h-4 w-4 text-green-500 shrink-0" />
                 }
               </button>
             ))}

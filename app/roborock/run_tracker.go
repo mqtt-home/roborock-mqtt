@@ -169,6 +169,18 @@ func (rt *RunTracker) resolveRunKey(slug string, status *DeviceStatus) string {
 	}
 }
 
+// DurationMinutes returns the recorded reference duration in minutes for a
+// device/program, or 0 if none has been recorded yet.
+func (rt *RunTracker) DurationMinutes(slug, key string) int {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	secs := rt.durations[slug][key]
+	if secs <= 0 {
+		return 0
+	}
+	return int(math.Round(float64(secs) / 60.0))
+}
+
 func (rt *RunTracker) setDuration(slug, key string, seconds int) {
 	if rt.durations[slug] == nil {
 		rt.durations[slug] = make(map[string]int)

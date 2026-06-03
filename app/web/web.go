@@ -320,12 +320,25 @@ func (ws *WebServer) deviceScenes(w http.ResponseWriter, r *http.Request) {
 	if dev == nil {
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if dev.Scenes == nil {
-		json.NewEncoder(w).Encode([]any{})
-	} else {
-		json.NewEncoder(w).Encode(dev.Scenes)
+
+	// Enrich each scene with the recorded run duration (if any) so the UI can
+	// show how long the program takes before it is started.
+	type sceneResp struct {
+		ID              int    `json:"id"`
+		Name            string `json:"name"`
+		RecordedMinutes *int   `json:"recorded_minutes,omitempty"`
 	}
+	resp := make([]sceneResp, 0, len(dev.Scenes))
+	for _, s := range dev.Scenes {
+		item := sceneResp{ID: s.ID, Name: s.Name}
+		if m := ws.deviceManager.SceneRecordedMinutes(dev.Slug, s.ID); m > 0 {
+			item.RecordedMinutes = &m
+		}
+		resp = append(resp, item)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (ws *WebServer) executeScene(w http.ResponseWriter, r *http.Request) {

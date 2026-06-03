@@ -79,6 +79,7 @@ export async function setMopMode(slug: string, mode: string): Promise<void> {
 export interface SceneInfo {
   id: number;
   name: string;
+  recorded_minutes?: number; // typical run duration from previous runs (absent until known)
 }
 
 export async function fetchScenes(slug: string): Promise<SceneInfo[]> {

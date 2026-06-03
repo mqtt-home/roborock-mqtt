@@ -210,6 +210,12 @@ func (dm *DeviceManager) NoteSegmentClean(slug string, segments []int) {
 	dm.runTracker.NoteSegmentClean(slug, segments)
 }
 
+// SceneRecordedMinutes returns the recorded run duration (minutes) for a scene
+// on a device, or 0 if none has been recorded yet.
+func (dm *DeviceManager) SceneRecordedMinutes(slug string, sceneID int) int {
+	return dm.runTracker.DurationMinutes(slug, fmt.Sprintf("scene:%d", sceneID))
+}
+
 // DisconnectAll disconnects all devices.
 func (dm *DeviceManager) DisconnectAll() {
 	for _, md := range dm.devices {

@@ -23,7 +23,8 @@ const dayTypeStyles: Record<DayType, { bg: string; text: string; icon: React.Rea
 function getNextActionLabel(nextAction: { time: string; action: string; scene_id?: number }, scenes: SceneInfo[]): string {
   if (nextAction.action === 'scene') {
     const scene = scenes.find(s => s.id === nextAction.scene_id);
-    return scene ? scene.name : `Scene #${nextAction.scene_id}`;
+    if (!scene) return `Scene #${nextAction.scene_id}`;
+    return scene.recorded_minutes != null ? `${scene.name} (~${scene.recorded_minutes} min)` : scene.name;
   }
   return nextAction.action.charAt(0).toUpperCase() + nextAction.action.slice(1);
 }
