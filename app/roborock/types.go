@@ -127,6 +127,9 @@ type DeviceStatus struct {
 	Battery        int    `json:"battery"`
 	CleanTime      int    `json:"clean_time"`
 	CleanArea      int    `json:"clean_area"`
+	// CleanPercent is the run completion percentage the robot reports directly.
+	// Only newer models send it, so it is a pointer: nil means "not reported".
+	CleanPercent   *int   `json:"clean_percent"`
 	ErrorCode      int    `json:"error_code"`
 	MapPresent     int    `json:"map_present"`
 	InCleaning     int    `json:"in_cleaning"`
@@ -194,6 +197,10 @@ type PublishedStatus struct {
 	ErrorCode          int                `json:"error_code"`
 	Error              string             `json:"error"`
 	InCleaning         bool               `json:"in_cleaning"`
+	// CleanPercent is the run completion percentage reported directly by the
+	// robot (newer models only). Unlike RemainingMinutes below it is not an
+	// estimate; set only while cleaning, omitted when the robot does not report it.
+	CleanPercent       *int               `json:"clean_percent,omitempty"`
 	Consumables        ConsumableStatus   `json:"consumables"`
 	ConsumablePercents ConsumablePercents `json:"consumable_percents"`
 	// Program identifies the current cleaning run (scene id, room segments, or

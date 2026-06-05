@@ -27,6 +27,9 @@ export interface VacuumStatus {
   in_cleaning: boolean;
   consumables: ConsumableStatus;
   consumable_percents: ConsumablePercents;
+  // Completion percentage reported directly by the robot (newer models only,
+  // set while cleaning). Distinct from the estimated remaining_minutes below.
+  clean_percent?: number;
   // Estimated from previous runs of the same program (absent until known).
   program?: string; // scene:<id> | seg:<rooms> | full | zone | segment
   remaining_minutes?: number;

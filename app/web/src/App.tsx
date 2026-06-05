@@ -94,6 +94,7 @@ export function App() {
         <Route path="/devices/:slug/*" element={
           <DeviceLayout
             devices={devices}
+            statuses={statuses}
             globalNotAtHome={globalNotAtHome}
             setGlobalNotAtHome={setGlobalNotAtHome}
             isConnected={isConnected}
@@ -171,8 +172,9 @@ import { Outlet } from 'react-router-dom';
 import type { VacuumStatus } from '@/types/status';
 import type { ScheduleState } from '@/types/schedule';
 
-function DeviceLayout({ devices, globalNotAtHome, setGlobalNotAtHome, isConnected, error, reconnect, theme, toggleTheme, onLogout }: {
+function DeviceLayout({ devices, statuses, globalNotAtHome, setGlobalNotAtHome, isConnected, error, reconnect, theme, toggleTheme, onLogout }: {
   devices: DeviceSummary[];
+  statuses: Record<string, VacuumStatus>;
   globalNotAtHome: boolean;
   setGlobalNotAtHome: (v: boolean) => void;
   isConnected: boolean;
@@ -230,7 +232,7 @@ function DeviceLayout({ devices, globalNotAtHome, setGlobalNotAtHome, isConnecte
           </div>
         )}
 
-        <DeviceSwitcher devices={devices} selected={slug ?? ''} onSelect={(s) => navigate(`/devices/${s}`)} />
+        <DeviceSwitcher devices={devices} statuses={statuses} selected={slug ?? ''} onSelect={(s) => navigate(`/devices/${s}`)} />
 
         <Outlet />
 

@@ -100,6 +100,22 @@ export function CleaningProgress({ status, scenes }: CleaningProgressProps) {
         </div>
       </div>
 
+      {/* Completion percentage reported directly by the robot (newer models) */}
+      {status.clean_percent != null && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">Progress</span>
+            <span className="text-sm font-medium text-foreground tabular-nums">{status.clean_percent}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-green-500 transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, status.clean_percent))}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Progress stats */}
       <div className="grid grid-cols-2 gap-4">
         <div className="text-center">

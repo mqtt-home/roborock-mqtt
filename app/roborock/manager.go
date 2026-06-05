@@ -122,6 +122,9 @@ func (dm *DeviceManager) ConnectAll() {
 				Error:      status.ErrorName,
 				InCleaning: status.InCleaning > 0,
 			}
+			if status.InCleaning > 0 {
+				published.CleanPercent = status.CleanPercent
+			}
 			dm.runTracker.Update(dev.Slug, status, published)
 			dev.SetStatus(published)
 			if dm.onStatus != nil {
@@ -249,6 +252,9 @@ func (dm *DeviceManager) PollAll() {
 			ErrorCode:  status.ErrorCode,
 			Error:      status.ErrorName,
 			InCleaning: status.InCleaning > 0,
+		}
+		if status.InCleaning > 0 {
+			published.CleanPercent = status.CleanPercent
 		}
 
 		consumables, err := md.CloudMQTT.PollConsumables()
