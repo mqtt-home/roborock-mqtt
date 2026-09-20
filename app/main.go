@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 )
 
 var (
-	deviceManager   *roborock.DeviceManager
+	deviceManager      *roborock.DeviceManager
 	scheduleEngine     *roborock.ScheduleEngine
 	notAtHomeStore     *roborock.NotAtHomeStore
 	scheduleStore      *roborock.ScheduleStore
@@ -66,11 +67,24 @@ func publishDeviceSchedule(slug string, state *roborock.ScheduleState) {
 	logger.Debug("Published schedule state", "device", slug, "topic", topic, "dayType", state.ActiveDay)
 }
 
+// shuttingDown is set once the process got its termination signal.
+var shuttingDown atomic.Bool
+
 // publishDeviceAvailability publishes a device's cloud-connection state to the
 // local broker as a retained `<topic>/<slug>/availability` message. Consumers
 // (e.g. the wall-display Wall API) use this to mark a device unavailable rather
 // than trust a stale retained `<topic>/<slug>/status`.
 func publishDeviceAvailability(slug string, online bool) {
+	// A bridge that is shutting down must not speak for its devices. In a
+	// rolling update the replacement pod has already announced "online", and
+	// the "offline" that DisconnectAll triggers here would land on top of it:
+	// the vacuum stays marked unavailable until the next restart although it is
+	// fine. Whether the bridge itself is gone is what bridge/state is for.
+	if shuttingDown.Load() && !online {
+		logger.Debug("Shutting down, not publishing availability", "device", slug)
+		return
+	}
+
 	cfg := config.Get()
 	topic := cfg.MQTT.Topic + "/" + slug + "/availability"
 	payload := "offline"
@@ -379,6 +393,7 @@ func main() {
 	if stopPolling != nil {
 		close(stopPolling)
 	}
+	shuttingDown.Store(true)
 	if deviceManager != nil {
 		deviceManager.DisconnectAll()
 	}
@@ -390,4 +405,3 @@ func initPprof() {
 		http.ListenAndServe(":6060", nil)
 	}()
 }
-
