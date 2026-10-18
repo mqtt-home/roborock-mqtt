@@ -56,15 +56,15 @@ export function useSSE(): SSEHookReturn {
             setStatuses(prev => ({ ...prev, [device]: status as VacuumStatus }));
           }
         } catch {
-          setError('Failed to parse server data');
+          setError('conn.parse');
         }
       };
 
       eventSource.onerror = () => {
         setIsConnected(false);
         setError(eventSource.readyState === EventSource.CLOSED
-          ? 'Connection closed by server'
-          : 'Connection error');
+          ? 'conn.closed'
+          : 'conn.error');
 
         reconnectTimeoutRef.current = setTimeout(() => {
           if (eventSourceRef.current === eventSource) {
@@ -73,7 +73,7 @@ export function useSSE(): SSEHookReturn {
         }, 3000);
       };
     } catch {
-      setError('Failed to connect to server');
+      setError('conn.failed');
     }
   }, [cleanup]);
 

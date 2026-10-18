@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bug } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Bug, Map as MapIcon } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 import { API_BASE } from '@/lib/api';
 
 interface VectorSpan { x: number; y: number; w: number }
@@ -37,7 +38,30 @@ const debugColors = [
   '#F0B27A', '#82E0AA', '#F1948A', '#AED6F1', '#D7BDE2',
 ];
 
+// fitView frames what was actually mapped (the raw map is mostly empty canvas)
+// and picks a frame shape close to it.
+function fitView(md: VectorMapData): { x: number; y: number; w: number; aspect: number } {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const spans = [...(md.walls ?? []), ...(md.floor ?? []), ...(md.rooms ?? []).flatMap(r => r.spans ?? [])];
+  for (const s of spans) {
+    x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x + s.w);
+    y0 = Math.min(y0, s.y); y1 = Math.max(y1, s.y + 1);
+  }
+  for (const [x, y] of md.path ?? []) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  if (!isFinite(x0) || x1 <= x0 || y1 <= y0) {
+    return { x: md.width / 2, y: md.height / 2, w: md.width, aspect: md.height / md.width };
+  }
+  const pad = Math.max(x1 - x0, y1 - y0) * 0.05;
+  const bw = x1 - x0 + 2 * pad, bh = y1 - y0 + 2 * pad;
+  const aspect = Math.min(Math.max(bh / bw, 0.6), 1.25);
+  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, w: Math.max(bw, bh / aspect), aspect };
+}
+
 export function VectorMap({ slug, isCleaning }: VectorMapProps) {
+  const { t } = useI18n();
   const [mapData, setMapData] = useState<VectorMapData | null>(null);
   // viewBox state: center position and visible width (zoom level)
   const [viewCenter, setViewCenter] = useState<{ x: number; y: number } | null>(null);
@@ -71,13 +95,15 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
     fetchMap();
   }, [slug, fetchMap]);
 
+  const fit = useMemo(() => (mapData ? fitView(mapData) : null), [mapData]);
+
   // Reset view when map data first loads
   useEffect(() => {
-    if (mapData && viewCenter === null) {
-      setViewCenter({ x: mapData.width / 2, y: mapData.height / 2 });
-      setViewWidth(mapData.width);
+    if (fit && viewCenter === null) {
+      setViewCenter({ x: fit.x, y: fit.y });
+      setViewWidth(fit.w);
     }
-  }, [mapData, viewCenter]);
+  }, [fit, viewCenter]);
 
   // Wheel zoom — zoom into cursor position
   useEffect(() => {
@@ -107,10 +133,10 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const dx = (e.clientX - lastPos.current.x) / rect.width * viewWidth;
-    const dy = (e.clientY - lastPos.current.y) / rect.height * (viewWidth * mapData.height / mapData.width);
+    const dy = (e.clientY - lastPos.current.y) / rect.height * (viewWidth * (fit?.aspect ?? 1));
     lastPos.current = { x: e.clientX, y: e.clientY };
     setViewCenter(c => c ? { x: c.x - dx, y: c.y - dy } : null);
-  }, [dragging, mapData, viewWidth]);
+  }, [dragging, mapData, viewWidth, fit]);
 
   const handlePointerUp = useCallback(() => {
     setDragging(false);
@@ -133,28 +159,34 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
   }, [mapData]);
 
   const handleDoubleClick = useCallback(() => {
-    if (!mapData) return;
-    setViewCenter({ x: mapData.width / 2, y: mapData.height / 2 });
-    setViewWidth(mapData.width);
-  }, [mapData]);
+    if (!fit) return;
+    setViewCenter({ x: fit.x, y: fit.y });
+    setViewWidth(fit.w);
+  }, [fit]);
 
-  if (!mapData || !viewCenter || !viewWidth) return null;
+  if (!mapData || !fit || !viewCenter || !viewWidth) return null;
 
-  const { width, height, rooms, walls, floor, path, charger, robot, room_names, debug_blocks } = mapData;
+  const { rooms, walls, floor, path, charger, robot, room_names, debug_blocks } = mapData;
   const hoveredBlockData = debug_blocks?.find(b => b.type === hoveredBlock);
 
-  const aspect = height / width;
+  const aspect = fit.aspect;
   const vw = viewWidth;
   const vh = vw * aspect;
   const vbX = viewCenter.x - vw / 2;
   const vbY = viewCenter.y - vh / 2;
 
   // Scale font size relative to zoom so labels stay readable
-  const fontSize = Math.max(3, vw / 80);
+  const fontSize = Math.max(2, vw / 42);
 
   return (
-    <div className="mb-6">
-      <div className="rounded-lg border border-border overflow-hidden bg-card touch-none select-none"
+    <section className="card">
+      <div className="card-h">
+        <span className="ico sm"><MapIcon /></span>
+        <h3>{t('map')}</h3>
+        <span className="meta hidden sm:inline">{t('map.reset')}</span>
+      </div>
+      <div className="card-b">
+      <div className="map-frame touch-none select-none"
         style={{ cursor: dragging ? 'grabbing' : 'grab' }}>
         <svg
           ref={svgRef}
@@ -170,7 +202,7 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
         >
           <defs>
             <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
-              <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2332" strokeWidth={0.3} />
+              <path d="M 10 0 L 0 0 0 10" fill="none" style={{ stroke: 'var(--map-grid)' }} strokeWidth={0.3} />
             </pattern>
             {/* Glow only on markers (just 2 elements) */}
             <filter id="markerGlow" x="-100%" y="-100%" width="300%" height="300%">
@@ -182,34 +214,38 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
             </filter>
           </defs>
 
-          {/* Dark background + grid */}
-          <rect x={vbX} y={vbY} width={vw} height={vh} fill="#0d1117" />
+          {/* Background + grid, themed via --map-* */}
+          <rect x={vbX} y={vbY} width={vw} height={vh} style={{ fill: 'var(--map-bg)' }} />
           <rect x={vbX} y={vbY} width={vw} height={vh} fill="url(#grid)" />
 
-          {/* Floor — very subtle */}
-          {floor?.map((s, i) => (
-            <rect key={`f${i}`} x={s.x} y={s.y} width={s.w} height={1} fill="#1e293b" opacity={0.5} />
-          ))}
+          {/* Floor */}
+          <g style={{ fill: 'var(--map-floor)' }} shapeRendering="crispEdges">
+            {floor?.map((s, i) => (
+              <rect key={`f${i}`} x={s.x} y={s.y} width={s.w} height={1} />
+            ))}
+          </g>
 
           {/* Room fills — low opacity */}
           {rooms?.map(room =>
-            <g key={`rg${room.id}`}
+            <g key={`rg${room.id}`} shapeRendering="crispEdges"
               onPointerEnter={() => setHoveredRoom(room.id)}
               onPointerLeave={() => setHoveredRoom(null)}
             >
               {room.spans.map((s, i) => (
                 <rect key={`r${room.id}-${i}`} x={s.x} y={s.y} width={s.w} height={1}
                   fill={room.color}
-                  opacity={hoveredRoom === room.id ? 0.25 : 0.12}
+                  style={{ opacity: hoveredRoom === room.id ? 'var(--map-room-fill-hover)' : 'var(--map-room-fill)' }}
                 />
               ))}
             </g>
           )}
 
           {/* Walls */}
-          {walls?.map((s, i) => (
-            <rect key={`w${i}`} x={s.x} y={s.y} width={s.w} height={1} fill="#64748b" />
-          ))}
+          <g style={{ fill: 'var(--map-wall)' }} shapeRendering="crispEdges">
+            {walls?.map((s, i) => (
+              <rect key={`w${i}`} x={s.x} y={s.y} width={s.w} height={1} />
+            ))}
+          </g>
 
           {/* Room outlines — colored borders as single path per room */}
           {rooms?.map(room => {
@@ -227,21 +263,21 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
             );
           })}
 
-          {/* Cleaning path — bright subtle */}
+          {/* Cleaning path */}
           {path && path.length > 1 && (
             <polyline
               points={path.map(([x, y]) => `${x},${y}`).join(' ')}
               fill="none"
-              stroke="rgba(100,200,255,0.35)"
+              style={{ stroke: 'var(--map-path)' }}
               strokeWidth={0.4}
               strokeLinecap="round"
               strokeLinejoin="round"
             />
           )}
 
-          {/* Room labels — with glow */}
+          {/* Room labels with a halo so they read on any room colour */}
           {rooms?.map(room => {
-            const name = room_names?.[String(room.id)] ?? `Room ${room.id}`;
+            const name = room_names?.[String(room.id)] ?? t('map.room', { id: room.id });
             return (
               <text
                 key={`rl${room.id}`}
@@ -250,32 +286,32 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
                 textAnchor="middle"
                 dominantBaseline="central"
                 fontSize={fontSize}
-                fontFamily="system-ui, sans-serif"
-                fontWeight={hoveredRoom === room.id ? 700 : 500}
-                fill={hoveredRoom === room.id ? '#fff' : 'rgba(255,255,255,0.85)'}
-                stroke="#0d1117"
-                strokeWidth={fontSize * 0.2}
+                fontWeight={hoveredRoom === room.id ? 700 : 550}
+                strokeWidth={fontSize * 0.22}
+                strokeLinejoin="round"
                 paintOrder="stroke"
-                style={{ pointerEvents: 'none' }}
+                style={{ pointerEvents: 'none', fill: 'var(--map-label)', stroke: 'var(--map-label-halo)', fontFamily: 'var(--font-sans)' }}
               >
                 {name}
               </text>
             );
           })}
 
-          {/* Charger — with glow halo */}
+          {/* Charger */}
           {charger && (
-            <g filter="url(#markerGlow)">
-              <circle cx={charger.x} cy={charger.y} r={fontSize * 0.8} fill="#3B82F6" opacity={0.3} />
-              <circle cx={charger.x} cy={charger.y} r={fontSize * 0.5} fill="#3B82F6" stroke="#60A5FA" strokeWidth={fontSize * 0.1} />
+            <g filter="url(#markerGlow)" style={{ fill: 'var(--map-dock)' }}>
+              <title>{t('map.dock')}</title>
+              <circle cx={charger.x} cy={charger.y} r={fontSize * 0.8} opacity={0.3} />
+              <circle cx={charger.x} cy={charger.y} r={fontSize * 0.5} style={{ stroke: 'var(--map-marker-ring)' }} strokeWidth={fontSize * 0.12} />
             </g>
           )}
 
-          {/* Robot — with glow halo */}
+          {/* Robot */}
           {robot && (
-            <g filter="url(#markerGlow)">
-              <circle cx={robot.x} cy={robot.y} r={fontSize * 0.8} fill="#22C55E" opacity={0.3} />
-              <circle cx={robot.x} cy={robot.y} r={fontSize * 0.5} fill="#22C55E" stroke="#4ADE80" strokeWidth={fontSize * 0.1} />
+            <g filter="url(#markerGlow)" style={{ fill: 'var(--map-robot)' }}>
+              <title>{t('map.robot')}</title>
+              <circle cx={robot.x} cy={robot.y} r={fontSize * 0.8} opacity={0.3} />
+              <circle cx={robot.x} cy={robot.y} r={fontSize * 0.5} style={{ stroke: 'var(--map-marker-ring)' }} strokeWidth={fontSize * 0.12} />
             </g>
           )}
 
@@ -288,7 +324,7 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
               r={fontSize}
               fill={debugColors[hoveredBlock! % debugColors.length]}
               opacity={0.9}
-              stroke="#fff"
+              style={{ stroke: 'var(--map-marker-ring)' }}
               strokeWidth={fontSize * 0.1}
             />
           ))}
@@ -310,14 +346,14 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
         <div className="mt-2">
           <button
             onClick={() => setShowDebug(!showDebug)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <Bug className="h-3.5 w-3.5" />
-            <span>{showDebug ? 'Hide' : 'Show'} Map Blocks ({debug_blocks.length})</span>
+            <span>{t(showDebug ? 'map.blocks.hide' : 'map.blocks.show', { n: debug_blocks.length })}</span>
           </button>
 
           {showDebug && (
-            <div className="mt-2 p-3 bg-card rounded-lg border border-border space-y-1.5 max-h-64 overflow-y-auto">
+            <div className="mt-1 p-2 rounded-xl border space-y-1 max-h-64 overflow-y-auto" style={{ background: 'var(--surface-2)' }}>
               {debug_blocks.map((block, i) => {
                 const hasPoints = block.points && block.points.length > 0;
                 const isKnown = [1, 2, 3, 4, 5, 6, 7, 8, 11, 1024].includes(block.type);
@@ -330,12 +366,12 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
                     onMouseEnter={() => hasPoints ? setHoveredBlock(block.type) : undefined}
                     onMouseLeave={() => setHoveredBlock(null)}
                     className={`flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors ${
-                      isHovered ? 'bg-accent' : ''
+                      isHovered ? 'bg-muted' : ''
                     } ${hasPoints ? 'cursor-pointer' : 'cursor-default'}`}
                   >
                     <span
                       className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
-                      style={{ backgroundColor: hasPoints ? color : 'transparent', border: hasPoints ? 'none' : '1px solid var(--color-border)' }}
+                      style={{ backgroundColor: hasPoints ? color : 'transparent', border: hasPoints ? 'none' : '1px solid var(--line-2)' }}
                     />
                     <span className={isKnown ? 'text-muted-foreground' : 'text-foreground font-medium'}>
                       {block.label}
@@ -351,6 +387,7 @@ export function VectorMap({ slug, isCleaning }: VectorMapProps) {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </section>
   );
 }

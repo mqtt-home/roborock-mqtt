@@ -44,9 +44,4 @@ export interface ScheduleSSEEvent {
   state: ScheduleState;
 }
 
-export const dayTypeLabels: Record<DayType, string> = {
-  normal: 'Normal',
-  weekend: 'Weekend',
-  free: 'Free Day',
-  notAtHome: 'Not at Home',
-};
+export const dayTypes: DayType[] = ['normal', 'weekend', 'free', 'notAtHome'];

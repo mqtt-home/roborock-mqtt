@@ -6,3 +6,6 @@ app/web/node_modules/
 production/config/.session
 app/web/tsconfig.tsbuildinfo
 production/config/schedules
+app/web/tsconfig.node.tsbuildinfo
+app/web/vite.config.js
+app/web/vite.config.d.ts
