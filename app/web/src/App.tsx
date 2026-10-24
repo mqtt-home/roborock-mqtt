@@ -31,7 +31,7 @@ import type { SceneInfo } from '@/lib/api'
 import { areaM2 } from '@/types/status'
 import type { DeviceSummary, VacuumStatus } from '@/types/status'
 import type { ScheduleState } from '@/types/schedule'
-import { LANGS, useI18n, type Key } from '@/lib/i18n'
+import { LangSwitch as BaseLangSwitch, useI18n, type Key } from '@/lib/i18n'
 import { LoginPage } from '@/components/LoginPage'
 import { CleaningProgress } from '@/components/CleaningProgress'
 import { VectorMap } from '@/components/VectorMap'
@@ -207,16 +207,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 function LangSwitch() {
-  const i = useI18n()
-  return (
-    <div className="seg" role="group" aria-label={i.t('language')}>
-      {LANGS.map((l) => (
-        <button key={l} aria-pressed={i.lang === l} onClick={() => i.setLang(l)}>
-          {l.toUpperCase()}
-        </button>
-      ))}
-    </div>
-  )
+  return <BaseLangSwitch i18n={useI18n()} />
 }
 
 // --- Device layout (shared header + outlet) ---

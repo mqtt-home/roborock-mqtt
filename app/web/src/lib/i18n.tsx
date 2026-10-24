@@ -1,25 +1,11 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { createI18n, type I18n as BaseI18n } from '@mqtt-home/ui/i18n'
+export { LANGS, LangSwitch, resolveText, type Lang, type Text } from '@mqtt-home/ui/i18n'
 
-export type Lang = 'de' | 'en'
-export const LANGS: Lang[] = ['de', 'en']
-
-const LANG_KEY = 'home.lang'
-
-// German is the house language; English stays one tap away. Per device.
-function initialLang(): Lang {
-  try {
-    const v = localStorage.getItem(LANG_KEY)
-    if (v === 'de' || v === 'en') return v
-  } catch {
-    // storage blocked
-  }
-  return 'de'
-}
-
+// German is the house language; English stays one tap away (per device).
 const dict = {
   de: {
     title: 'Saugroboter',
-    language: 'Sprache',
     loading: 'Wird geladen …',
     'loading.devices': 'Saugroboter werden geladen …',
     disconnected: 'Keine Verbindung',
@@ -169,7 +155,6 @@ const dict = {
   },
   en: {
     title: 'Robot vacuum',
-    language: 'Language',
     loading: 'Loading …',
     'loading.devices': 'Loading vacuums …',
     disconnected: 'Disconnected',
@@ -315,63 +300,35 @@ const dict = {
     'water.moderate': 'Moderate',
     'water.intense': 'Intense',
   },
-} satisfies Record<Lang, Record<string, string>>
+}
 
 export type Key = keyof (typeof dict)['de']
 
-export interface I18n {
-  lang: Lang
-  locale: string
-  setLang: (l: Lang) => void
-  /** A UI string with {placeholders}. */
-  t: (key: Key, vars?: Record<string, string | number>) => string
+export type I18n = BaseI18n<Key> & {
   /** A value from the device ("segment_cleaning") in a group ("st"), translated if known. */
   tv: (group: 'st' | 'fan' | 'mop' | 'water' | 'c' | 'day', value: string) => string
-  /** A number in the current locale (8,5 in German). */
-  num: (n: number, decimals?: number) => string
   /** "1 h 23 min", "12 min 5 s". */
   dur: (sec: number) => string
   /** 24h clock time, "14:05". */
   clock: (iso?: string) => string
 }
 
-const Ctx = createContext<I18n | null>(null)
-
 /** "segment_cleaning" -> "Segment Cleaning", for values the dictionary does not know. */
 export function prettify(name: string): string {
   return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(initialLang)
+const base = createI18n(dict)
+export const I18nProvider = base.I18nProvider
 
-  const setLang = useCallback((l: Lang) => {
-    setLangState(l)
-    try {
-      localStorage.setItem(LANG_KEY, l)
-    } catch {
-      // convenience only
-    }
-  }, [])
-
-  const value = useMemo<I18n>(() => {
-    const locale = lang === 'de' ? 'de-DE' : 'en-GB'
-    document.documentElement.lang = lang
-    const t: I18n['t'] = (key, vars) =>
-      (dict[lang][key] ?? dict.en[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => String(vars?.[k] ?? ''))
+export function useI18n(): I18n {
+  const i = base.useI18n()
+  return useMemo<I18n>(() => {
+    const { t, lang, locale } = i
     const tv: I18n['tv'] = (group, value) => {
       if (!value) return '–'
       const k = `${group}.${value}` as Key
       return k in dict[lang] ? t(k) : prettify(value)
-    }
-    const fmt = new Map<number, Intl.NumberFormat>()
-    const num: I18n['num'] = (n, decimals = 0) => {
-      let f = fmt.get(decimals)
-      if (!f) {
-        f = new Intl.NumberFormat(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
-        fmt.set(decimals, f)
-      }
-      return f.format(n)
     }
     const dur: I18n['dur'] = (sec) => {
       if (sec < 0 || !isFinite(sec)) return '–'
@@ -389,14 +346,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       if (isNaN(d.getTime())) return '–'
       return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false })
     }
-    return { lang, locale, setLang, t, tv, num, dur, clock }
-  }, [lang, setLang])
-
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
-}
-
-export function useI18n() {
-  const v = useContext(Ctx)
-  if (!v) throw new Error('useI18n outside I18nProvider')
-  return v
+    return { ...i, tv, dur, clock }
+  }, [i])
 }
